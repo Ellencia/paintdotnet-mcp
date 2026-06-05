@@ -1,0 +1,124 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWindowsForms>false</UseWindowsForms>
+    <UseWPF>false</UseWPF>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <RootNamespace>PaintDotNetMcp.Bridge</RootNamespace>
+    <AssemblyName>PaintDotNetMcp.Bridge</AssemblyName>
+    <!-- Output as a regular DLL; Paint.NET loads it from its Effects folder. -->
+    <OutputType>Library</OutputType>
+    <!-- Don't copy Paint.NET DLLs to output; they're already in the Paint.NET install dir at runtime. -->
+    <DisableImplicitFrameworkReferences>false</DisableImplicitFrameworkReferences>
+    <!-- ImageIO uses LockBits with pointer arithmetic for PNG encode/decode. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- System.Drawing.Common on Windows is fine; suppress the cross-platform analyzer warning. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PaintDotNetMcp.Contracts\PaintDotNetMcp.Contracts.csproj" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+    <!-- SkiaSharp for WebP/JPEG encode/decode (PNG also via Skia for consistency).
+         MIT/Apache 2.0. Native libSkiaSharp.dll is flattened into the output dir below
+         so Paint.NET's plugin loader can resolve it next to PaintDotNetMcp.Bridge.dll. -->
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="2.88.9" />
+  </ItemGroup>
+
+  <Target Name="FlattenSkiaSharpNativeDll" AfterTargets="Build">
+    <ItemGroup>
+      <_SkiaNativeDll Include="$(OutputPath)runtimes\win-x64\native\*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_SkiaNativeDll)"
+          DestinationFolder="$(OutputPath)"
+          SkipUnchangedFiles="true"
+          Condition="'@(_SkiaNativeDll)' != ''" />
+  </Target>
+
+  <!--
+    Deploy: copies Bridge output DLLs into Paint.NET's Effects folder.
+
+    Manual:    dotnet build -c Release -t:Deploy
+    Override:  dotnet build -c Release -t:Deploy -p:EffectsDir="D:\Apps\paint.net\Effects"
+    Auto:      dotnet build -c Release -p:DeployOnBuild=true
+    Note:      writing to "C:\Program Files\paint.net\Effects" requires an elevated shell.
+  -->
+  <PropertyGroup>
+    <EffectsDir Condition="'$(EffectsDir)' == ''">$(PaintDotNetDir)\Effects</EffectsDir>
+  </PropertyGroup>
+
+  <Target Name="DoDeploy">
+    <Error Condition="!Exists('$(EffectsDir)')" Text="Effects folder not found: $(EffectsDir). Set -p:EffectsDir or -p:PaintDotNetDir to your Paint.NET install." />
+    <ItemGroup>
+      <_DeployDlls Include="$(OutputPath)PaintDotNetMcp.Bridge.dll" />
+      <_DeployDlls Include="$(OutputPath)PaintDotNetMcp.Contracts.dll" />
+      <_DeployDlls Include="$(OutputPath)SkiaSharp.dll" Condition="Exists('$(OutputPath)SkiaSharp.dll')" />
+      <_DeployDlls Include="$(OutputPath)libSkiaSharp.dll" Condition="Exists('$(OutputPath)libSkiaSharp.dll')" />
+      <_DeployDlls Include="$(OutputPath)System.Drawing.Common.dll" Condition="Exists('$(OutputPath)System.Drawing.Common.dll')" />
+    </ItemGroup>
+    <Message Text="Deploying @(_DeployDlls->Count()) file(s) to $(EffectsDir)" Importance="high" />
+    <Copy SourceFiles="@(_DeployDlls)" DestinationFolder="$(EffectsDir)" SkipUnchangedFiles="true" />
+    <Message Text="  Restart Paint.NET to load the updated plugin." Importance="high" />
+  </Target>
+
+  <!-- Public entry points. -->
+  <Target Name="Deploy" DependsOnTargets="Build;DoDeploy" />
+  <Target Name="_AutoDeploy" AfterTargets="Build" Condition="'$(DeployOnBuild)' == 'true'" DependsOnTargets="DoDeploy" />
+
+  <ItemGroup>
+    <!-- Paint.NET assemblies — referenced from the install directory. Private=false so they aren't copied. -->
+    <Reference Include="PaintDotNet.Base">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.Base.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PaintDotNet.ComponentModel">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.ComponentModel.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PaintDotNet.Collections">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.Collections.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PaintDotNet.Core">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PaintDotNet.Data">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.Data.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PaintDotNet.Effects">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.Effects.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PaintDotNet.Effects.Core">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.Effects.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PaintDotNet.Effects.Legacy">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.Effects.Legacy.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PaintDotNet.Fundamentals">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.Fundamentals.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PaintDotNet.Primitives">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.Primitives.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PaintDotNet.PropertySystem">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.PropertySystem.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PaintDotNet.Windows">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.Windows.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="PaintDotNet.Windows.Core">
+      <HintPath>$(PaintDotNetDir)\PaintDotNet.Windows.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

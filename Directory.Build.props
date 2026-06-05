@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PaintDotNetDir Condition="'$(PaintDotNetDir)' == ''">C:\Program Files\paint.net</PaintDotNetDir>
+    <!-- Suppress assembly-version conflict warnings caused by Paint.NET 5's runtime assemblies
+         (e.g. System.Runtime.Serialization.Formatters 9.0.0, WindowsBase 9.0.0) that the .NET 9
+         SDK reference packs satisfy with older versions. The actual 9.0.0 binaries ship inside
+         Paint.NET's install dir and are loaded at runtime, so this is purely a build-time noise. -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
+  </PropertyGroup>
+</Project>

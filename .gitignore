@@ -1,0 +1,8 @@
+bin/
+obj/
+*.user
+.vs/
+
+# Generated outputs (demo artifacts — not tracked)
+out/
+portfolio/
