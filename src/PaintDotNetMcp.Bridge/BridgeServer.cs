@@ -21,7 +21,7 @@ namespace PaintDotNetMcp.Bridge;
 //   - Tries best-effort auto-commit after a queued op so the user doesn't have to keep clicking the menu.
 internal static class BridgeServer
 {
-    public const string Version = "0.5.12";
+    public const string Version = "0.5.13";
 
     private static readonly object _gate = new();
     private static bool _started;
@@ -32,6 +32,12 @@ internal static class BridgeServer
 
     // Last seen Effect instance (set on construction). Used by read-only queries and auto-commit reflection.
     private static volatile BridgeEffect? _lastEffect;
+
+    // Full-size backing buffer. All queued ops are baked into this ONCE per render pass in
+    // PrepareRenderPass (called from the single-threaded OnSetRenderInfo), so the tiled/multithreaded
+    // OnRender only copies from it. Fixes the tiling bug where the queue was drained inside the tiled
+    // OnRender and each tile's CopySurface(src) erased ops that the other tiles had drawn.
+    private static Surface? _backing;
 
     public static int PendingCount => _pendingOps.Count;
 
@@ -54,6 +60,41 @@ internal static class BridgeServer
         }
     }
 
+    // Called ONCE per render pass from BridgeEffect.OnSetRenderInfo, before Paint.NET fans OnRender
+    // out across tiles/threads. We bake the current source plus all queued ops into a full-size
+    // backing buffer here (single-threaded), so the tiled OnRender only has to copy from it.
+    //
+    // This is the fix for the tiling bug: the old code drained the queue inside the multithreaded,
+    // tiled OnRender, so only whichever tile won the race kept the drawing while every other tile's
+    // CopySurface(src) restored the original pixels underneath it.
+    public static void PrepareRenderPass(BridgeEffect effect, RenderArgs srcArgs, RenderArgs dstArgs)
+    {
+        _lastEffect = effect;
+        AutoCommit.EnsureHwndCaptured();
+        AppServices.Capture(effect);
+
+        var src = srcArgs.Surface;
+        if (_backing is null || _backing.Width != src.Width || _backing.Height != src.Height)
+        {
+            _backing?.Dispose();
+            _backing = new Surface(src.Width, src.Height);
+        }
+
+        // Base = current committed layer state, so drawing accumulates across commits.
+        _backing.CopySurface(src);
+
+        // Bake every queued op ONCE onto the backing buffer, then clear the queue.
+        while (_pendingOps.TryDequeue(out var op))
+        {
+            try { op.Apply(_backing); }
+            catch { /* swallow; one bad op shouldn't break the render */ }
+        }
+
+        // Snapshot the fully-composed buffer so read-only methods serve the correct whole image.
+        try { ImageIO.CaptureSnapshot(_backing); }
+        catch { }
+    }
+
     public static void OnRenderPass(
         BridgeEffect effect,
         RenderArgs srcArgs,
@@ -62,29 +103,21 @@ internal static class BridgeServer
         int startIndex,
         int length)
     {
-        _lastEffect = effect;
-        AutoCommit.EnsureHwndCaptured();
-        AppServices.Capture(effect);
+        // Tiled + multithreaded: just copy this slice of ROIs from the pre-composed backing buffer.
+        // (PrepareRenderPass ran once beforehand and is where the ops were actually applied.)
+        var backing = _backing;
+        bool usable = backing is not null
+            && backing.Width == dstArgs.Surface.Width
+            && backing.Height == dstArgs.Surface.Height;
 
-        // Default: copy source to destination unchanged (no-op effect).
         for (int i = startIndex; i < startIndex + length; i++)
         {
             var roi = rois[i];
-            dstArgs.Surface.CopySurface(srcArgs.Surface, roi.Location, roi);
+            if (usable)
+                dstArgs.Surface.CopySurface(backing!, roi.Location, roi);
+            else
+                dstArgs.Surface.CopySurface(srcArgs.Surface, roi.Location, roi);
         }
-
-        // Apply pending mutations on top.
-        while (_pendingOps.TryDequeue(out var op))
-        {
-            try { op.Apply(dstArgs.Surface); }
-            catch { /* swallow; one bad op shouldn't break the render */ }
-        }
-
-        // Snapshot the destination so read-only methods can serve it without a live render context.
-        // The first ROI list of a render pass covers the whole image, but to be safe we always
-        // capture from the dst surface (which has been fully populated above).
-        try { ImageIO.CaptureSnapshot(dstArgs.Surface); }
-        catch { }
     }
 
     private static void AcceptLoop(CancellationToken ct)

@@ -45,9 +45,18 @@ public sealed class BridgeEffect : PropertyBasedEffect
     protected override PropertyCollection OnCreatePropertyCollection()
         => new PropertyCollection(Array.Empty<Property>());
 
+    protected override void OnSetRenderInfo(PropertyBasedEffectConfigToken? newToken, RenderArgs dstArgs, RenderArgs srcArgs)
+    {
+        // Single-threaded pre-render hook. Bake ALL pending ops into a full-size backing buffer here,
+        // BEFORE Paint.NET fans OnRender out across tiles/threads. Draining the queue in the tiled
+        // OnRender (as the old code did) only kept the drawing in whichever tile won the race.
+        BridgeServer.PrepareRenderPass(this, srcArgs, dstArgs);
+        base.OnSetRenderInfo(newToken, dstArgs, srcArgs);
+    }
+
     protected override void OnRender(Rectangle[] renderRects, int startIndex, int length)
     {
-        // Hand the live render context to the server so it can apply queued mutations.
+        // Per-tile: copy this slice of ROIs from the buffer composed in OnSetRenderInfo above.
         BridgeServer.OnRenderPass(this, SrcArgs, DstArgs, renderRects, startIndex, length);
     }
 }
