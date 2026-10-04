@@ -18,6 +18,8 @@ namespace PaintDotNetMcp.Contracts;
 public static class PipeNames
 {
     public const string Default = "PaintDotNetMcp.Bridge.v1";
+    // Allow regression processes to use an isolated pipe without touching a live canvas.
+    public static string Current => Environment.GetEnvironmentVariable("PAINTDOTNET_MCP_PIPE_NAME") ?? Default;
 }
 
 public sealed class RpcRequest

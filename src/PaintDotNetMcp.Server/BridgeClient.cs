@@ -55,7 +55,7 @@ public sealed class BridgeClient : IAsyncDisposable
         if (_pipe is { IsConnected: true }) return;
         await DisposePipeAsync();
 
-        var pipe = new NamedPipeClientStream(".", PipeNames.Default, PipeDirection.InOut, PipeOptions.Asynchronous);
+        var pipe = new NamedPipeClientStream(".", PipeNames.Current, PipeDirection.InOut, PipeOptions.Asynchronous);
         await pipe.ConnectAsync(timeout: 3000, ct);
         _pipe = pipe;
         _reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);

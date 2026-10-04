@@ -11,6 +11,7 @@ using PaintDotNetMcp.Server;
 
 // Exercise production dispatch, Surface rendering, and the MCP tool -> named-pipe path.
 // Paint.NET itself need not be running. Its installed runtime assemblies are required.
+Environment.SetEnvironmentVariable("PAINTDOTNET_MCP_PIPE_NAME", "PaintDotNetMcp.Regression." + Guid.NewGuid());
 AssemblyLoadContext.Default.Resolving += (_, name) =>
 {
     string path = Path.Combine(Environment.GetEnvironmentVariable("PaintDotNetDir") ?? @"C:\Program Files\paint.net", name.Name + ".dll");
@@ -32,7 +33,8 @@ static async Task Run()
     {
         if (!condition) throw new Exception(message);
     }
-    object Prepare(Surface source) => prepare.Invoke(null, [effect, new RenderArgs(source)])!;
+    object Prepare(Surface source, Rectangle[]? scans = null) =>
+        prepare.Invoke(null, [effect, new RenderArgs(source), scans ?? [source.Bounds]])!;
     static void Render(object batch, Surface destination, Rectangle[] rois, int index, int count) =>
         batch.GetType().GetMethod("Render")!.Invoke(batch, [destination, rois, index, count]);
     static void Dispose(object batch) => ((IDisposable)batch).Dispose();
@@ -67,6 +69,18 @@ static async Task Run()
     Dispose(batch);
     Console.WriteLine("PASS cumulative drawing across commits");
 
+    // Paint.NET 5.1.12 rents a separate ROI array per tile, always starting at zero.
+    // Its capacity can exceed the active length and include zero-area padding.
+    Call("fill", new FillParams { R = 230, G = 40, B = 15 });
+    batch = Prepare(source);
+    Render(batch, destination, [rois[0], Rectangle.Empty, Rectangle.Empty, Rectangle.Empty], 0, 1);
+    Render(batch, destination, [rois[0], Rectangle.Empty], 0, 1);
+    Check(!Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 0 }).Ok, "Duplicate tile cannot complete the canvas");
+    Parallel.For(1, rois.Length, i => Render(batch, destination, [rois[i], Rectangle.Empty, Rectangle.Empty, Rectangle.Empty], 0, 1));
+    Check(Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 0 }).Ok, "Pooled per-tile arrays must complete");
+    Dispose(batch);
+    Console.WriteLine("PASS real-host pooled ROI arrays, zero-based slices, and duplicate tiles");
+
     // A cancelled pass must keep the queue, and selection snapshots preserve untouched pixels.
     source.CopySurface(destination);
     Call("fill", new FillParams { R = 0, G = 255, B = 0 });
@@ -74,8 +88,8 @@ static async Task Run()
     Render(batch, destination, rois, 0, 1);
     Dispose(batch);
     Check(!Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 10 }).Ok, "Cancelled pass must time out");
-    batch = Prepare(source);
     var selected = new[] { new Rectangle(200, 200, 100, 100) };
+    batch = Prepare(source, selected);
     Render(batch, destination, selected, 0, 1);
     Dispose(batch);
     var canvas = Call("get_canvas_png");
@@ -95,7 +109,7 @@ static async Task Run()
     await using var client = new BridgeClient();
     var tools = new PaintDotNetTools(client);
     var ping = JsonDocument.Parse(await tools.Ping(default));
-    Check(ping.RootElement.GetProperty("CompletedRevision").GetInt64() == 3, "Pipe ping completion revision");
+    Check(ping.RootElement.GetProperty("CompletedRevision").GetInt64() == 4, "Pipe ping completion revision");
     Check(JsonDocument.Parse(await tools.WaitForIdle(0)).RootElement.GetProperty("completed").GetBoolean(), "MCP wait tool is integrated");
     await tools.Fill(50, 60, 70);
     string savedPath = Path.Combine(Path.GetTempPath(), "paintdotnet-mcp-regression-" + Guid.NewGuid() + ".png");

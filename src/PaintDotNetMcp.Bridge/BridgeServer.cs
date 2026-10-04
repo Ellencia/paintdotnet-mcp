@@ -21,7 +21,7 @@ namespace PaintDotNetMcp.Bridge;
 //   - Tries best-effort auto-commit after a queued op so the user doesn't have to keep clicking the menu.
 internal static class BridgeServer
 {
-    public const string Version = "0.5.14";
+    public const string Version = "0.5.15";
 
     private static readonly object _gate = new();
     private static bool _started;
@@ -57,11 +57,13 @@ internal static class BridgeServer
         }
     }
 
-    public static RenderBatch PrepareRenderPass(BridgeEffect effect, RenderArgs srcArgs)
+    public static RenderBatch PrepareRenderPass(BridgeEffect effect, RenderArgs srcArgs,
+        IReadOnlyList<Rectangle>? selectionScans = null)
     {
         _lastEffect = effect;
         AutoCommit.EnsureHwndCaptured();
         AppServices.Capture(effect);
+        selectionScans ??= effect.EnvironmentParameters.GetSelectionAsScans();
         long revision;
         PendingOp[] operations;
         lock (_gate)
@@ -91,7 +93,7 @@ internal static class BridgeServer
                     }
                     finally { Monitor.PulseAll(_gate); }
                 }
-            });
+            }, selectionScans);
         }
         catch (Exception ex)
         {
@@ -141,7 +143,7 @@ internal static class BridgeServer
             try
             {
                 var pipe = new NamedPipeServerStream(
-                    PipeNames.Default,
+                    PipeNames.Current,
                     PipeDirection.InOut,
                     maxNumberOfServerInstances: 1,
                     PipeTransmissionMode.Byte,
