@@ -21,7 +21,7 @@ namespace PaintDotNetMcp.Bridge;
 //   - Tries best-effort auto-commit after a queued op so the user doesn't have to keep clicking the menu.
 internal static class BridgeServer
 {
-    public const string Version = "0.5.13";
+    public const string Version = "0.5.14";
 
     private static readonly object _gate = new();
     private static bool _started;
@@ -29,15 +29,12 @@ internal static class BridgeServer
 
     // Queue of operations to apply on the next render pass.
     private static readonly ConcurrentQueue<PendingOp> _pendingOps = new();
+    private static long _queuedRevision;
+    private static long _completedRevision;
+    private static string? _renderError;
 
     // Last seen Effect instance (set on construction). Used by read-only queries and auto-commit reflection.
     private static volatile BridgeEffect? _lastEffect;
-
-    // Full-size backing buffer. All queued ops are baked into this ONCE per render pass in
-    // PrepareRenderPass (called from the single-threaded OnSetRenderInfo), so the tiled/multithreaded
-    // OnRender only copies from it. Fixes the tiling bug where the queue was drained inside the tiled
-    // OnRender and each tile's CopySurface(src) erased ops that the other tiles had drawn.
-    private static Surface? _backing;
 
     public static int PendingCount => _pendingOps.Count;
 
@@ -60,63 +57,80 @@ internal static class BridgeServer
         }
     }
 
-    // Called ONCE per render pass from BridgeEffect.OnSetRenderInfo, before Paint.NET fans OnRender
-    // out across tiles/threads. We bake the current source plus all queued ops into a full-size
-    // backing buffer here (single-threaded), so the tiled OnRender only has to copy from it.
-    //
-    // This is the fix for the tiling bug: the old code drained the queue inside the multithreaded,
-    // tiled OnRender, so only whichever tile won the race kept the drawing while every other tile's
-    // CopySurface(src) restored the original pixels underneath it.
-    public static void PrepareRenderPass(BridgeEffect effect, RenderArgs srcArgs, RenderArgs dstArgs)
+    public static RenderBatch PrepareRenderPass(BridgeEffect effect, RenderArgs srcArgs)
     {
         _lastEffect = effect;
         AutoCommit.EnsureHwndCaptured();
         AppServices.Capture(effect);
-
-        var src = srcArgs.Surface;
-        if (_backing is null || _backing.Width != src.Width || _backing.Height != src.Height)
+        long revision;
+        PendingOp[] operations;
+        lock (_gate)
         {
-            _backing?.Dispose();
-            _backing = new Surface(src.Width, src.Height);
+            revision = _queuedRevision;
+            // Keep operations queued until rendering succeeds. A cancelled render can retry.
+            operations = _pendingOps.ToArray();
+            _renderError = null;
         }
-
-        // Base = current committed layer state, so drawing accumulates across commits.
-        _backing.CopySurface(src);
-
-        // Bake every queued op ONCE onto the backing buffer, then clear the queue.
-        while (_pendingOps.TryDequeue(out var op))
+        try
         {
-            try { op.Apply(_backing); }
-            catch { /* swallow; one bad op shouldn't break the render */ }
+            return new RenderBatch(srcArgs.Surface, operations, snapshot =>
+            {
+                lock (_gate)
+                {
+                    if (revision < _completedRevision) return;
+                    try
+                    {
+                        ImageIO.CaptureSnapshot(snapshot);
+                        for (long i = _completedRevision; i < revision; i++) _pendingOps.TryDequeue(out _);
+                        _completedRevision = revision;
+                        _renderError = null;
+                    }
+                    catch (Exception ex)
+                    {
+                        _renderError = "snapshot failed: " + ex.Message;
+                    }
+                    finally { Monitor.PulseAll(_gate); }
+                }
+            });
         }
-
-        // Snapshot the fully-composed buffer so read-only methods serve the correct whole image.
-        try { ImageIO.CaptureSnapshot(_backing); }
-        catch { }
+        catch (Exception ex)
+        {
+            lock (_gate)
+            {
+                _renderError = "render failed: " + ex.Message;
+                Monitor.PulseAll(_gate);
+            }
+            throw;
+        }
     }
 
-    public static void OnRenderPass(
-        BridgeEffect effect,
-        RenderArgs srcArgs,
-        RenderArgs dstArgs,
-        Rectangle[] rois,
-        int startIndex,
-        int length)
+    private static long Enqueue(PendingOp operation)
     {
-        // Tiled + multithreaded: just copy this slice of ROIs from the pre-composed backing buffer.
-        // (PrepareRenderPass ran once beforehand and is where the ops were actually applied.)
-        var backing = _backing;
-        bool usable = backing is not null
-            && backing.Width == dstArgs.Surface.Width
-            && backing.Height == dstArgs.Surface.Height;
-
-        for (int i = startIndex; i < startIndex + length; i++)
+        lock (_gate)
         {
-            var roi = rois[i];
-            if (usable)
-                dstArgs.Surface.CopySurface(backing!, roi.Location, roi);
-            else
-                dstArgs.Surface.CopySurface(srcArgs.Surface, roi.Location, roi);
+            _pendingOps.Enqueue(operation);
+            return ++_queuedRevision;
+        }
+    }
+
+    private static object WaitForIdle(int timeoutMs)
+    {
+        if (timeoutMs < 0 || timeoutMs > 60000)
+            throw new ArgumentOutOfRangeException(nameof(timeoutMs), "timeoutMs must be 0-60000");
+        lock (_gate)
+        {
+            long target = _queuedRevision;
+            long deadline = Environment.TickCount64 + timeoutMs;
+            while (_completedRevision < target)
+            {
+                if (_renderError is not null) throw new InvalidOperationException(_renderError);
+                long remaining = deadline - Environment.TickCount64;
+                if (remaining <= 0)
+                    throw new TimeoutException("Rendering did not finish. Invoke Effects > Tools > MCP Bridge, then retry wait_for_idle. No fresh read/save was performed.");
+                Monitor.Wait(_gate, (int)remaining);
+            }
+            return new { completed = true, revision = target, completed_revision = _completedRevision,
+                note = "All render ROIs copied and snapshot updated; host history acceptance is not observed." };
         }
     }
 
@@ -169,6 +183,10 @@ internal static class BridgeServer
 
         try
         {
+            // Snapshot consumers must not race an outstanding drawing operation.
+            if (req.Method is "get_canvas_png" or "save_png" or "extract_region" or
+                "remove_background" or "detect_objects" or "extract_objects" or "ocr_region")
+                WaitForIdle(5000);
             return req.Method switch
             {
                 "ping"               => Ok(req.Id, BuildPingResult()),
@@ -186,6 +204,7 @@ internal static class BridgeServer
                 "extract_region"     => HandleExtractRegion(req),
                 "remove_background"  => HandleRemoveBackground(req),
                 "commit"             => HandleCommit(req),
+                "wait_for_idle"      => Ok(req.Id, WaitForIdle(req.Params?.Deserialize<WaitForIdleParams>()?.TimeoutMs ?? 5000)),
                 "set_auto_commit"    => HandleSetAutoCommit(req),
                 "detect_objects"     => HandleDetectObjects(req),
                 "extract_objects"    => HandleExtractObjects(req),
@@ -216,14 +235,17 @@ internal static class BridgeServer
         if (req.Params is null) return Err(req.Id, "missing params");
         var p = req.Params.Value.Deserialize<TParams>()
             ?? throw new InvalidOperationException("could not deserialize params");
-        _pendingOps.Enqueue(factory(p));
+        long revision = Enqueue(factory(p));
 
         bool autoTried = AutoCommit.TryTrigger(_lastEffect, out string note);
         return Ok(req.Id, new
         {
             queued = true,
             pending = _pendingOps.Count,
-            auto_committed = autoTried,
+            revision,
+            completed = false,
+            auto_triggered = autoTried,
+            auto_committed = false,
             commit_note = note,
         });
     }
@@ -235,6 +257,12 @@ internal static class BridgeServer
         var r = new PingResult { Version = Version };
         r.AutoCommitAvailable = AutoCommit.Available;
         r.PendingOpCount = _pendingOps.Count;
+        lock (_gate)
+        {
+            r.QueuedRevision = _queuedRevision;
+            r.CompletedRevision = _completedRevision;
+            r.RenderError = _renderError;
+        }
 
         var eff = _lastEffect;
         if (eff is not null)
@@ -278,7 +306,7 @@ internal static class BridgeServer
             ImageBase64 = Convert.ToBase64String(bytes),
             Width = Math.Min(rw, w - x),
             Height = Math.Min(rh, h - y),
-            MaybeStale = _pendingOps.Count > 0,
+            MaybeStale = false,
             Format = fmt.ToString().ToLowerInvariant(),
             MimeType = ImageIO.MimeFor(fmt),
             Bytes = bytes.Length,
@@ -388,7 +416,7 @@ internal static class BridgeServer
             var pngForPaste = fmt == SKEncodedImageFormat.Png
                 ? bytes
                 : ImageIO.EncodeImage(region, rw, rh, 0, 0, rw, rh, SKEncodedImageFormat.Png, 100);
-            _pendingOps.Enqueue(new PasteImageOp(new PasteImageParams
+            Enqueue(new PasteImageOp(new PasteImageParams
             {
                 PngBase64 = Convert.ToBase64String(pngForPaste),
                 X = x, Y = y, BlendMode = "replace",
@@ -426,7 +454,8 @@ internal static class BridgeServer
         return Ok(req.Id, new CommitResult
         {
             AutoTriggered = tried,
-            AppliedOpCount = before,
+            AppliedOpCount = 0,
+            QueuedOpCount = before,
             Note = note,
         });
     }

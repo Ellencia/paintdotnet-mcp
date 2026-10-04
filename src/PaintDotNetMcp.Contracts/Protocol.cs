@@ -37,6 +37,11 @@ public sealed class RpcResponse
 
 // ---- Method-specific param/result DTOs ----
 
+public sealed class WaitForIdleParams
+{
+    public int TimeoutMs { get; set; } = 5000;
+}
+
 public sealed class PingResult
 {
     public string Version { get; set; } = "";
@@ -46,6 +51,9 @@ public sealed class PingResult
     public int? LayerCount { get; set; }
     public bool AutoCommitAvailable { get; set; }
     public int PendingOpCount { get; set; }
+    public long QueuedRevision { get; set; }
+    public long CompletedRevision { get; set; }
+    public string? RenderError { get; set; }
     /// <summary>Which reflection-based services resolved on this Paint.NET build. Diagnostic.</summary>
     public Dictionary<string, bool>? Probe { get; set; }
 }
@@ -322,6 +330,7 @@ public sealed class RemoveBackgroundResult
 
 public sealed class CommitResult
 {
+    public int QueuedOpCount { get; set; }
     /// <summary>True if commit was triggered automatically; false if user must invoke the menu.</summary>
     public bool AutoTriggered { get; set; }
     public int AppliedOpCount { get; set; }

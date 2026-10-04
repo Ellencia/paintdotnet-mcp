@@ -184,7 +184,7 @@ claude mcp add -s user paintdotnet "C:\...\PaintDotNetMcp.Server.exe"   # user �
 2. 아무 이미지를 열고 (또는 `File > New`) **`Effects > Tools > MCP Bridge`** 를 한 번 실행한다. → 백그라운드 파이프 서버 시작 + 첫 캔버스 스냅샷.
 3. Claude에서 `paintdotnet.ping` 같은 도구를 호출.
 4. `fill` / `draw_*` / `paste_image` 같은 변형 명령은 큐에 들어간다. 브리지가 **Ctrl+F (Repeat last effect)** 를 자동으로 Paint.NET 메인 윈도우에 보내 적용을 시도한다 (auto-commit). 실패하면 사용자가 직접 `Effects > Tools > MCP Bridge`를 다시 누르거나 Ctrl+F를 누르면 됨.
-5. `get_canvas_png` / `extract_region` / `remove_background` / `save_png` 는 마지막으로 렌더된 스냅샷을 읽어 응답한다.
+5. `wait_for_idle timeoutMs=5000`으로 그리기의 모든 타일 렌더링과 스냅샷 갱신을 기다린다. `get_canvas_png` / `extract_region` / `remove_background` / `save_png` / 객체 검출·추출 / OCR도 미완료 그리기가 있으면 자동으로 최대 5초 기다린다. 시간 초과나 렌더링 오류가 나면 오래된 이미지로 읽기·저장을 진행하지 않는다.
 
 ## 도구 목록 (v0.5 / v0.6)
 
@@ -193,6 +193,7 @@ claude mcp add -s user paintdotnet "C:\...\PaintDotNetMcp.Server.exe"   # user �
 |---|---|
 | `ping` | 브릿지 상태, 캔버스 크기, pending op 수, auto-commit 가용 여부 |
 | `commit` | 큐에 쌓인 op들을 강제로 커밋 시도 (Ctrl+F 시뮬레이션 또는 reflection) |
+| `wait_for_idle` | 호출 시점까지 큐에 들어간 그리기의 모든 타일 렌더링과 스냅샷 갱신을 기다림. `timeoutMs` 기본 5000, 범위 0–60000. 커밋 요청은 보내지 않음 |
 | `set_auto_commit` | 자동 커밋 on/off 토글. 배치 작업할 때 끄고 마지막에 `commit` 호출 |
 
 ### 그리기 (큐, 자동 커밋 시도)
@@ -288,7 +289,21 @@ extract_objects savePathTemplate="C:\out\icon_{i:000}.webp"
 1. **Reflection**: Effect의 `Services` 컨테이너에서 "Repeat last effect" 명령을 찾아 호출.
 2. **Win32 fallback**: `PostMessage(hwnd, Ctrl+F)`로 Paint.NET 메인 윈도우에 키 입력 전달.
 
-둘 다 실패하면 사용자가 직접 메뉴/Ctrl+F를 눌러야 한다. `ping` 응답의 `AutoCommitAvailable` 필드로 가용성 확인 가능. 응답마다 `auto_committed` + `commit_note`가 함께 온다.
+둘 다 실패하면 사용자가 직접 메뉴/Ctrl+F를 눌러야 한다. `ping` 응답의 `AutoCommitAvailable` 필드로 가용성 확인 가능. 그리기 응답의 `auto_triggered`는 커밋 요청 전송 여부이며, 렌더링 완료를 뜻하지 않는다. 큐 응답은 `completed=false`와 `revision`, `commit_note`를 반환한다. 기존 `auto_committed`는 오인 방지를 위해 항상 false로 유지한다. `commit`의 `AppliedOpCount`도 요청 시점에는 0이며, `QueuedOpCount`가 대기 작업 수다.
+
+`wait_for_idle`의 `completed=true`는 모든 요청 ROI가 복사되고 읽기·저장용 스냅샷이 갱신됐다는 뜻이다. Paint.NET의 최종 효과 수락이나 Undo 이력 반영은 관찰하지 않는다. `ping`의 `QueuedRevision`, `CompletedRevision`, `RenderError`로 진행과 오류를 확인할 수 있다. 렌더링이 취소되면 작업은 큐에 남아 다음 MCP Bridge 실행에서 재시도된다. 잘못된 작업 자체가 렌더링을 실패시키면 오류가 반환되며, 브리지를 재시작하기 전까지 해당 작업은 큐에 남는다.
+
+### 타일 렌더링 수정 (0.5.14)
+
+[PR #1](https://github.com/Ellencia/paintdotnet-mcp/pull/1)의 사전 합성 접근을 적용했다. `OnSetRenderInfo`에서 작업을 한 번 합성하고, 병렬 `OnRender`는 각 타일을 복사한다. 효과 인스턴스별 버퍼를 사용하며, 모든 ROI 완료 후에만 스냅샷을 공개한다. 선택 영역 밖의 픽셀은 원본 그대로 유지한다.
+
+회귀 검증은 Paint.NET 설치와 .NET 9 SDK가 있는 Windows에서 실행한다. Paint.NET 배포 DLL의 사전 컴파일 코드가 시스템 런타임과 다를 수 있어 테스트에서는 ReadyToRun을 끈다.
+
+```powershell
+$env:COMPlus_ReadyToRun = '0'
+dotnet run --project tests/PaintDotNetMcp.Regression -c Release
+Remove-Item Env:COMPlus_ReadyToRun
+```
 
 주의: Ctrl+F 단축키가 Paint.NET 설정에서 변경되어 있다면 fallback이 작동하지 않는다.
 

@@ -1,0 +1,198 @@
+using System.Drawing;
+using System.Diagnostics;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.Loader;
+using System.Text.Json;
+using PaintDotNet;
+using PaintDotNetMcp.Bridge;
+using PaintDotNetMcp.Contracts;
+using PaintDotNetMcp.Server;
+
+// Exercise production dispatch, Surface rendering, and the MCP tool -> named-pipe path.
+// Paint.NET itself need not be running. Its installed runtime assemblies are required.
+AssemblyLoadContext.Default.Resolving += (_, name) =>
+{
+    string path = Path.Combine(Environment.GetEnvironmentVariable("PaintDotNetDir") ?? @"C:\Program Files\paint.net", name.Name + ".dll");
+    return File.Exists(path) ? AssemblyLoadContext.Default.LoadFromAssemblyPath(path) : null;
+};
+await Run();
+
+[MethodImpl(MethodImplOptions.NoInlining)]
+static async Task Run()
+{
+    var server = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.BridgeServer")!;
+    var dispatch = server.GetMethod("Dispatch", BindingFlags.NonPublic | BindingFlags.Static)!;
+    var prepare = server.GetMethod("PrepareRenderPass", BindingFlags.Public | BindingFlags.Static)!;
+    var effect = (BridgeEffect)RuntimeHelpers.GetUninitializedObject(typeof(BridgeEffect));
+    int id = 0;
+    RpcResponse Call(string method, object? parameters = null) =>
+        (RpcResponse)dispatch.Invoke(null, [JsonSerializer.Serialize(new { id = ++id, method, @params = parameters })])!;
+    static void Check(bool condition, string message)
+    {
+        if (!condition) throw new Exception(message);
+    }
+    object Prepare(Surface source) => prepare.Invoke(null, [effect, new RenderArgs(source)])!;
+    static void Render(object batch, Surface destination, Rectangle[] rois, int index, int count) =>
+        batch.GetType().GetMethod("Render")!.Invoke(batch, [destination, rois, index, count]);
+    static void Dispose(object batch) => ((IDisposable)batch).Dispose();
+    static bool Pixel(Surface surface, int x, int y, byte r, byte g, byte b) =>
+        surface[x, y].R == r && surface[x, y].G == g && surface[x, y].B == b;
+
+    Check(Call("set_auto_commit", new SetAutoCommitParams { Enabled = false }).Ok, "Disable auto-commit");
+    using var source = new Surface(800, 600);
+    using var destination = new Surface(800, 600);
+    source.Fill(ColorBgra.FromBgra(255, 255, 255, 255));
+    var queued = Call("fill", new FillParams { R = 230, G = 40, B = 15 });
+    Check(queued.Ok && !queued.Result!.Value.GetProperty("auto_committed").GetBoolean(), "Queue must not claim completion");
+    Check(!Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 0 }).Ok, "Queued op must not complete");
+    var rois = Enumerable.Range(0, 30).Select(i => new Rectangle(i % 5 * 160, i / 5 * 100, 160, 100)).ToArray();
+    var batch = Prepare(source);
+    Render(batch, destination, rois, 0, 1);
+    Check(!Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 0 }).Ok, "First tile is not completion");
+    var wait = Task.Run(() => Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 2000 }));
+    Parallel.For(1, rois.Length, i => Render(batch, destination, rois, i, 1));
+    Check((await wait).Ok, "Wait must wake after last tile");
+    for (int y = 0; y < 600; y++)
+        for (int x = 0; x < 800; x++)
+            Check(Pixel(destination, x, y, 230, 40, 15), "Full canvas fill must survive tiled rendering");
+    Dispose(batch);
+    Console.WriteLine("PASS 800x600 parallel tiled fill and last-tile completion");
+
+    source.CopySurface(destination);
+    Check(Call("draw_rect", new DrawRectangleParams { X = 650, Y = 450, Width = 100, Height = 100, R = 10, G = 100, B = 240, Fill = true }).Ok, "Queue rectangle");
+    batch = Prepare(source);
+    Parallel.For(0, rois.Length, i => Render(batch, destination, rois, i, 1));
+    Check(Pixel(destination, 10, 10, 230, 40, 15) && Pixel(destination, 700, 500, 10, 100, 240), "Cumulative drawing on far tile");
+    Dispose(batch);
+    Console.WriteLine("PASS cumulative drawing across commits");
+
+    // A cancelled pass must keep the queue, and selection snapshots preserve untouched pixels.
+    source.CopySurface(destination);
+    Call("fill", new FillParams { R = 0, G = 255, B = 0 });
+    batch = Prepare(source);
+    Render(batch, destination, rois, 0, 1);
+    Dispose(batch);
+    Check(!Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 10 }).Ok, "Cancelled pass must time out");
+    batch = Prepare(source);
+    var selected = new[] { new Rectangle(200, 200, 100, 100) };
+    Render(batch, destination, selected, 0, 1);
+    Dispose(batch);
+    var canvas = Call("get_canvas_png");
+    Check(canvas.Ok && !canvas.Result!.Value.GetProperty("MaybeStale").GetBoolean(), "Completed snapshot is fresh");
+    var imageIO = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.ImageIO")!;
+    object?[] dimensions = [0, 0];
+    var bytes = (byte[])imageIO.GetMethod("GetSnapshotCopy")!.Invoke(null, dimensions)!;
+    int offset = (10 * 800 + 10) * 4;
+    Check(bytes[offset + 2] == 230 && bytes[offset + 1] == 40, "Snapshot preserves pixels outside native ROIs");
+    offset = (250 * 800 + 250) * 4;
+    Check(bytes[offset + 1] == 255, "Snapshot includes selected pixels");
+    Console.WriteLine("PASS cancelled-render retry and selection snapshot");
+
+    // Start the real production pipe, then invoke the same tools exposed through MCP.
+    server.GetMethod("EnsureStarted")!.Invoke(null, [effect]);
+    await CheckMcpProtocol();
+    await using var client = new BridgeClient();
+    var tools = new PaintDotNetTools(client);
+    var ping = JsonDocument.Parse(await tools.Ping(default));
+    Check(ping.RootElement.GetProperty("CompletedRevision").GetInt64() == 3, "Pipe ping completion revision");
+    Check(JsonDocument.Parse(await tools.WaitForIdle(0)).RootElement.GetProperty("completed").GetBoolean(), "MCP wait tool is integrated");
+    await tools.Fill(50, 60, 70);
+    string savedPath = Path.Combine(Path.GetTempPath(), "paintdotnet-mcp-regression-" + Guid.NewGuid() + ".png");
+    try
+    {
+        // The real save request blocks until the render callback has published its snapshot.
+        var save = tools.SavePng(savedPath);
+        source.CopySurface(destination);
+        batch = Prepare(source);
+        Parallel.For(0, rois.Length, i => Render(batch, destination, rois, i, 1));
+        Dispose(batch);
+        await save;
+        Check(File.Exists(savedPath), "Save produced an artifact after completion");
+        using var bitmap = new System.Drawing.Bitmap(savedPath);
+        Check(bitmap.Width == 800 && bitmap.Height == 600 && bitmap.GetPixel(799, 599).R == 50, "Reopen saved artifact and verify far corner");
+        Console.WriteLine("PASS MCP tools -> named pipe -> render completion -> saved/reopened PNG");
+    }
+    finally { if (File.Exists(savedPath)) File.Delete(savedPath); }
+
+    // A queued operation arriving after preparation must survive this batch's completion.
+    Call("fill", new FillParams { R = 1, G = 2, B = 3 });
+    batch = Prepare(source);
+    Call("fill", new FillParams { R = 4, G = 5, B = 6 });
+    Parallel.For(0, rois.Length, i => Render(batch, destination, rois, i, 1));
+    Dispose(batch);
+    Check(!Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 0 }).Ok, "Later queue revision must remain pending");
+    batch = Prepare(destination);
+    Parallel.For(0, rois.Length, i => Render(batch, destination, rois, i, 1));
+    Dispose(batch);
+    Check(Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 0 }).Ok, "Later batch completes");
+    Console.WriteLine("PASS operations queued during rendering are preserved");
+
+    Call("fill", new FillParams { R = 9, G = 8, B = 7 });
+    savedPath = Path.Combine(Path.GetTempPath(), "paintdotnet-mcp-timeout-" + Guid.NewGuid() + ".png");
+    var timedSave = Call("save_png", new SavePngParams { Path = savedPath });
+    Check(!timedSave.Ok && !File.Exists(savedPath), "Timed-out save must not create a stale file");
+    batch = Prepare(source);
+    Parallel.For(0, rois.Length, i => Render(batch, destination, rois, i, 1));
+    Dispose(batch);
+    Check(!Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = -1 }).Ok, "Invalid timeout rejected");
+    Call("paste_image", new PasteImageParams { PngBase64 = "not-base64" });
+    try { batch = Prepare(source); throw new Exception("Malformed paste must fail rendering"); }
+    catch (TargetInvocationException) { }
+    Check(!Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 0 }).Ok, "Render failure must not claim completion");
+    Check(!Call("get_canvas_png").Ok, "Render failure must block a stale read");
+    Console.WriteLine("PASS timeout and render errors block stale reads/saves");
+}
+
+static async Task CheckMcpProtocol()
+{
+    var root = new DirectoryInfo(AppContext.BaseDirectory);
+    while (!File.Exists(Path.Combine(root.FullName, "PaintDotNetMcp.sln")))
+        root = root.Parent ?? throw new Exception("Repository root not found");
+    var start = new ProcessStartInfo("dotnet")
+    {
+        RedirectStandardInput = true,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true,
+    };
+    start.ArgumentList.Add(Path.Combine(root.FullName, "src", "PaintDotNetMcp.Server", "bin", "Release", "net9.0", "PaintDotNetMcp.Server.dll"));
+    using var process = Process.Start(start)!;
+    var stderr = process.StandardError.ReadToEndAsync();
+    async Task<JsonElement> Request(int id, string method, object parameters)
+    {
+        await process.StandardInput.WriteLineAsync(JsonSerializer.Serialize(new { jsonrpc = "2.0", id, method, @params = parameters }));
+        await process.StandardInput.FlushAsync();
+        while (true)
+        {
+            var line = await process.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            if (line is null) throw new Exception("MCP server exited: " + await stderr);
+            var response = JsonDocument.Parse(line).RootElement;
+            if (response.TryGetProperty("id", out var responseId) && responseId.GetInt32() == id)
+            {
+                if (response.TryGetProperty("error", out var error)) throw new Exception(error.ToString());
+                return response.GetProperty("result").Clone();
+            }
+        }
+    }
+    try
+    {
+        await Request(1, "initialize", new { protocolVersion = "2024-11-05", capabilities = new { }, clientInfo = new { name = "regression", version = "1" } });
+        await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
+        var list = await Request(2, "tools/list", new { });
+        if (!list.GetProperty("tools").EnumerateArray().Any(tool => tool.GetProperty("name").GetString() == "wait_for_idle"))
+            throw new Exception("wait_for_idle missing from MCP tools/list");
+        var called = await Request(3, "tools/call", new { name = "wait_for_idle", arguments = new { timeoutMs = 0 } });
+        if (called.TryGetProperty("isError", out var isError) && isError.GetBoolean())
+            throw new Exception("MCP wait_for_idle failed: " + called);
+        var result = JsonDocument.Parse(called.GetProperty("content")[0].GetProperty("text").GetString()!);
+        if (!result.RootElement.GetProperty("completed").GetBoolean()) throw new Exception("MCP completion missing");
+        Console.WriteLine("PASS real MCP stdio initialize, tools/list, tools/call wait_for_idle");
+    }
+    finally
+    {
+        if (!process.HasExited) process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync();
+    }
+}

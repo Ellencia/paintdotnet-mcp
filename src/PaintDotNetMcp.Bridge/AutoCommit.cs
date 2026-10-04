@@ -99,10 +99,15 @@ internal static class AutoCommit
         {
             // Send Ctrl+F (default "Repeat last effect" shortcut). PostMessage is async; doesn't block.
             // Caveat: this only does the right thing if MCP Bridge was the most recently executed effect.
-            PostMessage(_hwnd, WM_KEYDOWN, (IntPtr)VK_CONTROL, IntPtr.Zero);
-            PostMessage(_hwnd, WM_KEYDOWN, (IntPtr)VK_F, IntPtr.Zero);
-            PostMessage(_hwnd, WM_KEYUP, (IntPtr)VK_F, IntPtr.Zero);
-            PostMessage(_hwnd, WM_KEYUP, (IntPtr)VK_CONTROL, IntPtr.Zero);
+            bool sent = PostMessage(_hwnd, WM_KEYDOWN, (IntPtr)VK_CONTROL, IntPtr.Zero);
+            sent &= PostMessage(_hwnd, WM_KEYDOWN, (IntPtr)VK_F, IntPtr.Zero);
+            sent &= PostMessage(_hwnd, WM_KEYUP, (IntPtr)VK_F, IntPtr.Zero);
+            sent &= PostMessage(_hwnd, WM_KEYUP, (IntPtr)VK_CONTROL, IntPtr.Zero);
+            if (!sent)
+            {
+                note = "Win32 PostMessage did not send all Ctrl+F messages; user must invoke menu";
+                return false;
+            }
             Interlocked.Exchange(ref _lastTriggerTick, now);
             note = "posted Ctrl+F to Paint.NET main window";
             return true;

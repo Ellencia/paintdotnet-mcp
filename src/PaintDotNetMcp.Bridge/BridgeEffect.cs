@@ -33,6 +33,7 @@ public sealed class PluginSupportInfo : IPluginSupportInfo
 [EffectCategory(EffectCategory.Effect)]
 public sealed class BridgeEffect : PropertyBasedEffect
 {
+    private RenderBatch? _renderBatch;
     public const string StaticName = "MCP Bridge";
 
     public BridgeEffect()
@@ -47,16 +48,19 @@ public sealed class BridgeEffect : PropertyBasedEffect
 
     protected override void OnSetRenderInfo(PropertyBasedEffectConfigToken? newToken, RenderArgs dstArgs, RenderArgs srcArgs)
     {
-        // Single-threaded pre-render hook. Bake ALL pending ops into a full-size backing buffer here,
-        // BEFORE Paint.NET fans OnRender out across tiles/threads. Draining the queue in the tiled
-        // OnRender (as the old code did) only kept the drawing in whichever tile won the race.
-        BridgeServer.PrepareRenderPass(this, srcArgs, dstArgs);
+        _renderBatch?.Dispose();
+        _renderBatch = BridgeServer.PrepareRenderPass(this, srcArgs);
         base.OnSetRenderInfo(newToken, dstArgs, srcArgs);
+    }
+
+    protected override void OnDispose(bool disposing)
+    {
+        if (disposing) _renderBatch?.Dispose();
+        base.OnDispose(disposing);
     }
 
     protected override void OnRender(Rectangle[] renderRects, int startIndex, int length)
     {
-        // Per-tile: copy this slice of ROIs from the buffer composed in OnSetRenderInfo above.
-        BridgeServer.OnRenderPass(this, SrcArgs, DstArgs, renderRects, startIndex, length);
+        _renderBatch?.Render(DstArgs.Surface, renderRects, startIndex, length);
     }
 }

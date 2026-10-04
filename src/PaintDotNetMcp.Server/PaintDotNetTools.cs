@@ -24,10 +24,22 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     [McpServerTool, Description(
         "Force-commit any queued operations by triggering Paint.NET's 'Repeat last effect' " +
         "(Ctrl+F) on the main window. Best-effort; if it fails the user must invoke " +
-        "Effects > Tools > MCP Bridge manually. Returns auto_triggered=true on success.")]
+        "Effects > Tools > MCP Bridge manually. AutoTriggered means a trigger was sent, not " +
+        "render completion. Call wait_for_idle to confirm rendering and snapshot readiness.")]
     public async Task<string> Commit(CancellationToken ct = default)
     {
         var res = await bridge.CallAsync("commit", null, ct);
+        return res?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description(
+        "Wait until all currently queued drawing operations have rendered every requested tile " +
+        "and updated the read/save snapshot. Does not trigger a commit. Times out with an error " +
+        "if rendering never starts, is cancelled, or remains incomplete. Paint.NET undo-history " +
+        "acceptance is not observed. Snapshot read/save tools also wait automatically up to 5 seconds.")]
+    public async Task<string> WaitForIdle(int timeoutMs = 5000, CancellationToken ct = default)
+    {
+        var res = await bridge.CallAsync("wait_for_idle", new WaitForIdleParams { TimeoutMs = timeoutMs }, ct);
         return res?.ToString() ?? "{}";
     }
 

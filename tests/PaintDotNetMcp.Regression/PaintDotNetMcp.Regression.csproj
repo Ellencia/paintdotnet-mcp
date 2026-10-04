@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/PaintDotNetMcp.Bridge/PaintDotNetMcp.Bridge.csproj" />
+    <ProjectReference Include="../../src/PaintDotNetMcp.Server/PaintDotNetMcp.Server.csproj" />
+    <Reference Include="PaintDotNet.Base" HintPath="$(PaintDotNetDir)/PaintDotNet.Base.dll" />
+    <Reference Include="PaintDotNet.Core" HintPath="$(PaintDotNetDir)/PaintDotNet.Core.dll" />
+    <Reference Include="PaintDotNet.ComponentModel" HintPath="$(PaintDotNetDir)/PaintDotNet.ComponentModel.dll" />
+    <Reference Include="PaintDotNet.Primitives" HintPath="$(PaintDotNetDir)/PaintDotNet.Primitives.dll" />
+    <Reference Include="PaintDotNet.Effects" HintPath="$(PaintDotNetDir)/PaintDotNet.Effects.dll" />
+    <Reference Include="PaintDotNet.Effects.Legacy" HintPath="$(PaintDotNetDir)/PaintDotNet.Effects.Legacy.dll" />
+  </ItemGroup>
+</Project>
