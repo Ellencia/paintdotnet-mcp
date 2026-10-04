@@ -21,7 +21,7 @@ namespace PaintDotNetMcp.Bridge;
 //   - Tries best-effort auto-commit after a queued op so the user doesn't have to keep clicking the menu.
 internal static class BridgeServer
 {
-    public const string Version = "0.5.15";
+    public const string Version = "0.5.16";
 
     private static readonly object _gate = new();
     private static bool _started;
@@ -38,10 +38,18 @@ internal static class BridgeServer
 
     public static int PendingCount => _pendingOps.Count;
 
+    public static void RecordTriggerError(string error)
+    {
+        lock (_gate)
+        {
+            _renderError = "automatic effect execution failed: " + error;
+            Monitor.PulseAll(_gate);
+        }
+    }
+
     public static void EnsureStarted(BridgeEffect effect)
     {
         _lastEffect = effect;
-        AutoCommit.EnsureHwndCaptured();
         AppServices.Capture(effect);
         lock (_gate)
         {
@@ -61,7 +69,6 @@ internal static class BridgeServer
         IReadOnlyList<Rectangle>? selectionScans = null)
     {
         _lastEffect = effect;
-        AutoCommit.EnsureHwndCaptured();
         AppServices.Capture(effect);
         selectionScans ??= effect.EnvironmentParameters.GetSelectionAsScans();
         long revision;
@@ -445,10 +452,9 @@ internal static class BridgeServer
     private static RpcResponse HandleCommit(RpcRequest req)
     {
         int before = _pendingOps.Count;
-        // Force-commit ignores debounce.
+        // Explicit commit also executes when automatic execution is disabled.
         var prev = AutoCommit.Enabled;
         AutoCommit.Enabled = true;
-        AutoCommit.ResetDebounce();
         bool tried;
         string note;
         try { tried = AutoCommit.TryTrigger(_lastEffect, out note); }

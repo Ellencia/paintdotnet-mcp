@@ -156,6 +156,26 @@ static async Task Run()
     Check(!Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 0 }).Ok, "Render failure must not claim completion");
     Check(!Call("get_canvas_png").Ok, "Render failure must block a stale read");
     Console.WriteLine("PASS timeout and render errors block stale reads/saves");
+
+    // Only the UI dispatcher is substituted here. Production scheduling and failure
+    // reporting run unchanged; successful host execution requires the live app test.
+    var services = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.AppServices")!;
+    var cache = (Dictionary<string, object?>)services.GetField("_cache", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+    var ui = new TestUiDispatcher();
+    cache["mainForm"] = ui;
+    Call("set_auto_commit", new SetAutoCommitParams { Enabled = true });
+    Check(Call("commit").Ok && ui.Callbacks.Count == 1, "Commit must post UI work");
+    Check(Call("commit").Ok && ui.Callbacks.Count == 1, "Rapid requests must coalesce without discarding work");
+    var pendingBefore = Call("ping").Result!.Value.GetProperty("PendingOpCount").GetInt32();
+    ui.Callbacks[0].DynamicInvoke();
+    var failed = Call("ping").Result!.Value;
+    Check(failed.GetProperty("RenderError").GetString()!.StartsWith("automatic effect execution failed:"), "UI callback failure must be reported");
+    Check(failed.GetProperty("PendingOpCount").GetInt32() == pendingBefore, "Trigger failure must preserve queued work");
+    Check(!Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 0 }).Ok, "Trigger failure must not claim completion");
+    Check(Call("commit").Ok && ui.Callbacks.Count == 2, "Failure must release scheduler for retry");
+    ui.Callbacks[1].DynamicInvoke();
+    cache.Remove("mainForm");
+    Console.WriteLine("PASS UI scheduling, request coalescing, visible trigger errors, and retry");
 }
 
 static async Task CheckMcpProtocol()
@@ -208,5 +228,15 @@ static async Task CheckMcpProtocol()
     {
         if (!process.HasExited) process.Kill(entireProcessTree: true);
         await process.WaitForExitAsync();
+    }
+}
+
+sealed class TestUiDispatcher
+{
+    public List<Delegate> Callbacks { get; } = new();
+    public object BeginInvoke(Delegate callback)
+    {
+        Callbacks.Add(callback);
+        return new object();
     }
 }

@@ -1,334 +1,257 @@
 # Paint.NET MCP
 
-Paint.NET 5.x를 Model Context Protocol (MCP)으로 제어하는 2-프로세스 브릿지.
+Paint.NET을 MCP 클라이언트에서 제어하는 Windows용 서버와 효과 플러그인입니다. 현재 레이어에 그림을 그리거나 이미지를 붙이고, 영역 추출·배경 제거·파일 저장 작업을 수행할 수 있습니다.
 
----
+그리기 명령은 Paint.NET에서 MCP Bridge 효과를 자동 실행해 반영합니다. 서버를 연결한 뒤에는 매번 메뉴나 Ctrl+F를 누를 필요가 없습니다.
 
-## 한눈에 — 이게 어떻게 굴러가나 (비전공자용)
+[설치](#설치) · [클라이언트 연결](#클라이언트-연결) · [사용법](#사용법) · [도구 목록](#도구-목록) · [검증](#검증)
 
-목표: **Claude(AI)에게 "누끼 따줘" 하면 실제로 내 PC의 Paint.NET이 그 작업을 하게** 만드는 것.
+## 요구사항
 
-문제는, Claude는 Paint.NET을 직접 만질 수 없음. 그래서 사이에 **통역사 + 손**을 끼워 넣음.
+| 항목 | 요구사항 |
+| --- | --- |
+| 운영체제 | Windows |
+| Paint.NET | 5.x — 실제 앱 검증 버전: 5.1.12 |
+| 빌드 환경 | .NET 9 SDK |
+| 기본 설치 경로 | `C:\Program Files\paint.net` |
+| 선택 의존성 | AI 배경 제거: rembg CLI / OCR: Tesseract CLI |
 
-```
-[Claude]  말을 함        [Server.exe]  통역·중계      [Bridge.dll]  실제 작업
-   🧠   ───MCP(stdio)───▶    🔌      ───Named Pipe───▶   ✋ (Paint.NET 안에 심어둔 손)
-                                                              │
-                                                         Paint.NET 캔버스를 직접 조작
-```
+rembg와 Tesseract는 해당 기능을 사용할 때만 필요합니다. 한국어 OCR에는 Tesseract의 한국어 언어 데이터도 필요합니다.
 
-비유로 풀면:
+## 설치
 
-| 구성요소 | 정체 | 역할 (비유) |
-|---|---|---|
-| **Claude** | AI (나) | "누끼 따줘"라고 **말하는 두뇌** |
-| **PaintDotNetMcp.Server.exe** | 독립 프로그램 (.exe) | Claude의 말을 받아 파이프로 넘기는 **통역사·중계기**. Claude가 자동으로 켬 |
-| **PaintDotNetMcp.Bridge.dll** | Paint.NET 플러그인 | Paint.NET **안에 심어둔 손**. 통역사가 넘긴 지시대로 실제 그림을 조작 |
-| **PaintDotNetMcp.Contracts.dll** | 공용 코드 | 통역사와 손이 주고받는 **메시지 양식(공용 사전)**. 둘이 같은 말을 쓰게 맞춰줌 |
+저장소 루트에서 실행합니다. 배포 전에 작업을 저장하고 Paint.NET을 종료하세요. 기본 설치 경로의 Effects 폴더에 쓰려면 관리자 PowerShell이 필요합니다.
 
-**왜 굳이 2개 프로그램(통역사+손)으로 쪼갰나?**
-Paint.NET 플러그인(`Bridge.dll`)은 Paint.NET 안에서만 살 수 있음. 반대로 Claude는 그 안으로 못 들어감.
-그래서 둘 사이에 바깥에서 도는 `.exe`(통역사)를 하나 두고, OS의 **Named Pipe**(프로그램끼리 데이터를 주고받는 통로)로 연결한 것.
-
-**두 종류의 "통로"가 쓰임:**
-- **stdio (Claude ↔ Server)**: MCP 표준 방식. 글자(JSON)를 표준입출력으로 주고받음.
-- **Named Pipe (Server ↔ Bridge)**: 같은 PC 안의 두 프로그램을 잇는 윈도우 기본 통로. 이름은 `PaintDotNetMcp.Bridge.v1`.
-
-### 기술 스택 (정확한 버전)
-
-| 항목 | 내용 |
-|---|---|
-| 언어 / 런타임 | **C# / .NET 9** (빌드에 .NET 9 SDK 필요) |
-| `Contracts` | `net9.0` · 순수 메시지 타입만 (의존성 없음) |
-| `Server` (통역사) | `net9.0` · 실행파일(.exe) · 패키지: **ModelContextProtocol** `0.3.0-preview.4`, **Microsoft.Extensions.Hosting** `9.0.0` |
-| `Bridge` (손/플러그인) | `net9.0-windows` · 라이브러리(.dll) · 패키지: **System.Drawing.Common** `9.0.0`, **SkiaSharp** `2.88.9` (+ `NativeAssets.Win32`) |
-| 이미지 처리 | PNG = System.Drawing(LockBits 포인터 연산) / WebP·JPEG = SkiaSharp |
-| 외부 CLI 의존 (선택) | **AI 누끼** = `rembg` (`pip install rembg[cli]`) · **OCR** = Tesseract (`winget install UB-Mannheim.TesseractOCR`) |
-| Paint.NET 연동 | Bridge가 `C:\Program Files\paint.net`의 `PaintDotNet.*.dll` 12개를 참조 (복사 안 함 = `Private=false`. 실행 시 Paint.NET이 이미 메모리에 갖고 있음) |
-
-> 한계 요약: Paint.NET 5 공식 플러그인 API는 "현재 레이어 픽셀 조작"까지만 안전하게 보장함.
-> 레이어 추가·문서 저장·내장 효과 호출 등은 **리플렉션**(프로그램 내부를 우회로 들여다보는 기법)으로 구현해서,
-> Paint.NET이 업데이트되면 깨질 수 있음. (자세한 건 아래 "현재 한계" 참조)
-
----
-
-## 구조
-
-```
-[Claude] ──MCP(stdio)──▶ PaintDotNetMcp.Server.exe ──Named Pipe──▶ Paint.NET (PaintDotNetMcp.Bridge.dll Effect 플러그인)
-```
-
-- **PaintDotNetMcp.Bridge** — Paint.NET Effect 플러그인. `Effects > Tools > MCP Bridge` 메뉴에 등록되며 첫 호출 시 Named Pipe 서버(`PaintDotNetMcp.Bridge.v1`)를 띄운다. 서버는 정적 백그라운드 스레드라 Effect 인스턴스가 사라져도 Paint.NET이 종료될 때까지 살아있다.
-- **PaintDotNetMcp.Server** — stdio MCP 서버. Claude Desktop 등의 MCP 클라이언트가 spawn 한다. 받은 도구 호출을 Named Pipe로 Bridge에 중계한다.
-- **PaintDotNetMcp.Contracts** — 두 프로세스가 공유하는 IPC 메시지 타입.
-
-## 빌드
+### 빌드 및 배포
 
 ```powershell
-cd c:\Programming\paintdotnet-mcp
 dotnet build -c Release
+dotnet build src\PaintDotNetMcp.Bridge\PaintDotNetMcp.Bridge.csproj -c Release -t:Deploy
 ```
 
-요구사항: .NET 9 SDK, Paint.NET 5.x가 `C:\Program Files\paint.net`에 설치되어 있어야 함. 다른 경로면:
+Paint.NET이 다른 경로에 설치되어 있다면 두 명령에 같은 경로를 지정합니다.
 
 ```powershell
 dotnet build -c Release -p:PaintDotNetDir="D:\Apps\paint.net"
+dotnet build src\PaintDotNetMcp.Bridge\PaintDotNetMcp.Bridge.csproj -c Release -t:Deploy -p:PaintDotNetDir="D:\Apps\paint.net"
 ```
 
-## 설치 (자동)
+`Deploy` 대상은 Bridge 프로젝트에 정의되어 있습니다. 솔루션 전체에 `-t:Deploy`를 지정하지 마세요.
 
-빌드 + Effects 폴더 복사 + 충돌 프로세스 정리를 한 번에 하려면 PowerShell에서:
+### 배포 스크립트
+
+빌드와 복사를 한 번에 수행하려면 [deploy.ps1](deploy.ps1)을 사용할 수 있습니다.
 
 ```powershell
-# 일반 사용 (Program Files\paint.net\Effects 쓰려면 관리자 권한 PowerShell 필요)
 .\deploy.ps1
-
-# 다른 install 경로
+# 다른 설치 경로
 .\deploy.ps1 -PaintDotNetDir 'D:\Apps\paint.net'
-
-# 빌드 건너뛰고 복사만
+# 기존 빌드 결과만 배포
 .\deploy.ps1 -SkipBuild
 ```
 
-스크립트가 하는 일:
-1. `PaintDotNetMcp.Server.exe`(Claude Desktop spawn)가 살아있으면 종료 — DLL lock 해제
-2. Paint.NET 실행 중이면 경고만 (자동 종료 X — 작업 중일 수 있음)
-3. `dotnet build -c Release` 실행
-4. `PaintDotNetMcp.Bridge.dll` / `Contracts` / `SkiaSharp` / `libSkiaSharp` / `System.Drawing.Common` Effects 폴더로 복사
-5. Paint.NET·Claude Desktop 재시작 안내
+스크립트는 파일 잠금을 해제하기 위해 실행 중인 `PaintDotNetMcp.Server` 프로세스를 종료합니다. Paint.NET은 자동 종료하지 않습니다.
 
-또는 MSBuild 타겟 직접:
+### 수동 설치
 
-```powershell
-dotnet build -c Release -t:Deploy
-dotnet build -c Release -t:Deploy -p:EffectsDir="D:\Apps\paint.net\Effects"
-dotnet build -c Release -p:DeployOnBuild=true   # 매 빌드 자동 배포
+`src\PaintDotNetMcp.Bridge\bin\Release\net9.0-windows\`의 다음 파일을 Paint.NET의 `Effects` 폴더로 복사합니다.
+
+- `PaintDotNetMcp.Bridge.dll`
+- `PaintDotNetMcp.Contracts.dll`
+- `SkiaSharp.dll`
+- `libSkiaSharp.dll`
+- `System.Drawing.Common.dll`
+
+설치 또는 업데이트 후 Paint.NET과 연결된 MCP 클라이언트를 다시 시작하세요.
+
+## 클라이언트 연결
+
+서버는 stdio 방식으로 통신합니다. MCP 클라이언트가 다음 실행 파일을 시작하도록 설정합니다.
+
+```text
+<저장소 경로>\src\PaintDotNetMcp.Server\bin\Release\net9.0\PaintDotNetMcp.Server.exe
 ```
 
-## 설치 (수동)
-
-빌드 출력 폴더(`src\PaintDotNetMcp.Bridge\bin\Release\net9.0-windows\`)에서 다음을 Paint.NET Effects 폴더로 복사:
-
-```
-PaintDotNetMcp.Bridge.dll
-PaintDotNetMcp.Contracts.dll
-SkiaSharp.dll
-libSkiaSharp.dll       (Skia 네이티브; AfterTargets로 평탄화됨)
-System.Drawing.Common.dll   (Paint.NET이 이미 동일 버전 가지고 있으면 생략 가능)
-```
-
-복사 시 Paint.NET 실행 중이면 종료 후 재실행.
-
-## Claude Desktop 등록
-
-`%APPDATA%\Claude\claude_desktop_config.json`:
+아래는 `mcpServers` 형식의 설정 예시입니다. 경로는 실제 저장소 위치로 바꾸세요. 클라이언트에 따라 설정 파일 위치와 형식은 다를 수 있습니다.
 
 ```json
 {
   "mcpServers": {
     "paintdotnet": {
-      "command": "C:\\Programming\\paintdotnet-mcp\\src\\PaintDotNetMcp.Server\\bin\\Release\\net9.0\\PaintDotNetMcp.Server.exe"
+      "command": "C:\\Projects\\paintdotnet-mcp\\src\\PaintDotNetMcp.Server\\bin\\Release\\net9.0\\PaintDotNetMcp.Server.exe"
     }
   }
 }
 ```
 
-## Claude Code 등록 (CLI / VS Code 확장) — ⚠️ 스코프 주의
+Claude Desktop에서는 `%APPDATA%\Claude\claude_desktop_config.json`에 설정합니다. 프로젝트별 설정을 사용하는 클라이언트에서는 서버가 현재 작업 폴더에 등록되어 있는지도 확인하세요.
 
-**Claude Desktop과 Claude Code는 등록 위치가 다르다.** 위의 `claude_desktop_config.json`은
-Desktop 전용이고, Claude Code(터미널 CLI·VS Code 확장)는 `claude mcp` 명령으로 따로 등록해야 한다.
+## 사용법
 
-```powershell
-# ✅ 반드시 -s user (전역 등록) 로 추가할 것
-claude mcp add -s user paintdotnet "C:\Programming_STC\persnal_app\paintdotnet-mcp\src\PaintDotNetMcp.Server\bin\Release\net9.0\PaintDotNetMcp.Server.exe"
+1. Paint.NET에서 이미지 또는 새 캔버스를 엽니다.
+2. **Effects > Tools > MCP Bridge**를 한 번 실행합니다. 백그라운드 연결과 초기 스냅샷이 준비됩니다.
+3. MCP 클라이언트에서 `ping`으로 버전과 연결 상태를 확인합니다.
+4. 그리기 도구를 호출합니다. 기본 설정에서는 MCP Bridge가 자동으로 실행됩니다.
+5. `wait_for_idle`로 완료를 확인한 뒤 이미지를 읽거나 저장합니다.
 
-# 확인 — Scope 가 'User config' 여야 정상
-claude mcp get paintdotnet
+여러 작업을 한 번에 적용하려면 다음 순서를 사용합니다.
+
+```text
+set_auto_commit(enabled=false)
+fill(r=230, g=40, b=15)
+draw_rectangle(x=100, y=100, width=100, height=100, r=10, g=100, b=240, fill=true)
+commit()
+wait_for_idle(timeoutMs=5000)
+save_png(path="C:\out\canvas.png")
+set_auto_commit(enabled=true)
 ```
 
-### 함정: `-s user`를 안 쓰면 도구가 안 뜬다 (실제로 겪은 문제)
+위 예시는 도구 호출 순서를 나타냅니다. PowerShell 명령이 아닙니다. 좌표와 크기는 픽셀 단위이며 그리기는 활성 레이어에 적용됩니다.
 
-`claude mcp add`는 **스코프(scope)** 가 3가지다:
+### 완료 확인
 
-| 스코프 | 적용 범위 | 추가 방법 |
-|---|---|---|
-| **Local** (기본값) | **특정 작업 폴더 1개에만** 적용. 사적(private) | `claude mcp add` (옵션 없이) |
-| **User** | 내 **모든 프로젝트**에 적용 | `claude mcp add -s user` |
-| **Project** | 그 repo를 쓰는 **모든 사람**에 적용 (`.mcp.json` 체크인) | `claude mcp add -s project` |
+`auto_triggered=true`는 실행 요청을 예약했다는 뜻입니다. 렌더링 완료를 뜻하지 않습니다.
 
-옵션 없이 `claude mcp add`만 하면 **Local 스코프**로 들어간다. 그러면:
+`wait_for_idle`은 호출 시점까지 요청된 그리기의 모든 타일이 복사되고 읽기·저장용 스냅샷이 갱신될 때 성공합니다. `timeoutMs`의 기본값은 5000이며 허용 범위는 0–60000입니다. 이 도구 자체는 효과 실행을 요청하지 않습니다.
 
-- `claude mcp list` / `claude mcp get` 에는 **`✓ Connected` 로 멀쩡하게 보인다.**
-- 그런데 막상 대화 세션에서는 `mcp__paintdotnet__*` **도구가 하나도 안 뜬다.**
-- 서버를 껐다 켜도, Claude Code를 재시작해도 안 뜬다.
+스냅샷 읽기·저장·이미지 처리 도구도 대기 중인 그리기가 있으면 최대 5초 기다립니다. 시간 초과나 렌더링 오류가 발생하면 이전 스냅샷으로 작업을 진행하지 않습니다.
 
-**원인**: Local 스코프는 "그 명령을 실행했던 폴더"에 묶인다. VS Code로 연 워크스페이스 루트와
-그 폴더가 어긋나면, 헬스체크(`mcp list`)는 통과해도 세션에는 도구가 주입되지 않는다.
+진행 상태는 `ping`의 `PendingOpCount`, `QueuedRevision`, `CompletedRevision`, `RenderError`에서 확인할 수 있습니다. 완료 판정은 Paint.NET의 최종 효과 수락이나 Undo 이력 반영까지 관찰하지 않습니다.
 
-**해결**: User 스코프로 재등록하면 끝.
+## 도구 목록
 
-```powershell
-claude mcp remove paintdotnet -s local      # 기존 local 제거
-claude mcp add -s user paintdotnet "C:\...\PaintDotNetMcp.Server.exe"   # user 로 재등록
-# 그 다음 Claude Code 새 세션을 시작하면 도구가 뜬다 (현재 세션엔 실시간 반영 안 됨)
+### 연결 및 실행
+
+| 도구 | 기능 |
+| --- | --- |
+| `ping` | 버전, 캔버스 크기, 대기 작업, 완료 리비전, 오류 조회 |
+| `commit` | 자동 실행 설정과 관계없이 MCP Bridge 실행 요청 |
+| `wait_for_idle` | 그리기와 스냅샷 갱신 완료 대기 |
+| `set_auto_commit` | 그리기 후 자동 실행 켜기·끄기 |
+| `diagnose_services` | 내부 서비스 연결 진단 |
+
+### 그리기
+
+| 도구 | 기능 |
+| --- | --- |
+| `fill` | 전체 또는 지정 영역 단색 채우기 |
+| `draw_rectangle`, `draw_ellipse`, `draw_polygon` | 도형의 외곽선 또는 내부 그리기 |
+| `draw_line` | 선 그리기 |
+| `draw_text` | 시스템 폰트로 텍스트 그리기 |
+| `flood_fill` | 지정 픽셀에서 허용 오차에 따라 채우기 |
+| `gradient_fill` | 선형 또는 방사형 그라디언트 |
+| `paste_image` | base64 PNG를 지정 좌표에 합성 또는 덮어쓰기 |
+
+### 이미지 읽기 및 처리
+
+| 도구 | 기능 |
+| --- | --- |
+| `get_canvas_png` | 스냅샷 전체 또는 영역을 base64 이미지로 반환 |
+| `save_png` | 스냅샷 전체 또는 영역을 파일로 저장 |
+| `extract_region` | 지정 영역 추출 및 선택적 저장 |
+| `remove_background` | 색상 기반 또는 AI 배경 제거, 선택적 레이어 반영 |
+| `detect_objects` | 균일한 배경의 객체 경계 검출 |
+| `extract_objects` | 검출된 객체를 개별 파일로 저장 |
+| `ocr_region` | Tesseract로 지정 영역의 텍스트 인식 |
+
+이름이 `*_png`인 읽기·저장 도구도 `format` 옵션으로 PNG, WebP, JPEG를 지원합니다. `format=auto`이면 저장 경로의 확장자에서 형식을 추론하며, 경로가 없으면 PNG를 사용합니다. `quality`는 WebP·JPEG에 적용됩니다.
+
+`savePath`가 있는 추출·배경 제거 요청은 기본적으로 base64를 반환하지 않습니다. 이미지가 필요한 경우 `includeBase64=true`를 지정하세요. 배경 제거 결과를 레이어에 붙일 때는 무손실 PNG를 사용합니다.
+
+### 레이어, 문서, 효과 및 선택
+
+| 도구 | 기능 |
+| --- | --- |
+| `list_layers` | 레이어 목록 조회 |
+| `add_layer`, `delete_layer`, `select_layer` | 레이어 추가·삭제·활성화 |
+| `save_pdn` | 문서를 Paint.NET 형식으로 저장 |
+| `list_effects`, `apply_effect` | 효과 목록 조회 및 실행 요청 |
+| `set_selection_rect`, `set_selection_polygon`, `clear_selection` | 선택 영역 설정 및 해제 |
+
+레이어·문서·효과 실행과 기본 선택 연동은 Paint.NET 내부 API에 의존합니다. 다각형 선택은 브리지의 소프트웨어 마스크를 사용하며 Paint.NET UI에는 표시되지 않습니다. 사각형 선택도 내부 API 호출이 불가능하면 소프트웨어 마스크로 대체됩니다.
+
+## 작업 예시
+
+### 배경 제거
+
+```text
+remove_background(
+  x=0, y=0, width=800, height=600,
+  method="auto_corners", tolerance=40, feather=true,
+  savePath="C:\out\cutout.webp", applyToLayer=true
+)
+wait_for_idle(timeoutMs=5000)
 ```
 
-> **교훈**: 직접 만든 MCP는 **처음부터 `-s user`로 등록**할 것. (참고: 같은 PC의 `stc-cad` MCP는
-> User 스코프라 항상 잘 떴고, 이 paintdotnet만 Local이라 안 떴던 게 원인이었다.)
->
-> `mcp list`가 Connected인데 도구가 안 보이면 → **십중팔구 스코프 문제**다. `claude mcp get <이름>`으로 Scope부터 확인.
+`color_key`는 지정 색상을, `auto_corners`는 영역 모서리에서 추정한 색상을 기준으로 배경을 제거합니다. `method=ai`는 별도로 설치한 rembg CLI를 사용합니다.
 
-## 사용 흐름
+### 객체별 이미지 추출
 
-1. Paint.NET을 켠다.
-2. 아무 이미지를 열고 (또는 `File > New`) **`Effects > Tools > MCP Bridge`** 를 한 번 실행한다. → 백그라운드 파이프 서버 시작 + 첫 캔버스 스냅샷.
-3. Claude에서 `paintdotnet.ping` 같은 도구를 호출.
-4. `fill` / `draw_*` / `paste_image` 같은 변형 명령은 큐에 들어간다. 브리지가 **Ctrl+F (Repeat last effect)** 를 자동으로 Paint.NET 메인 윈도우에 보내 적용을 시도한다 (auto-commit). 실패하면 사용자가 직접 `Effects > Tools > MCP Bridge`를 다시 누르거나 Ctrl+F를 누르면 됨.
-5. `wait_for_idle timeoutMs=5000`으로 그리기의 모든 타일 렌더링과 스냅샷 갱신을 기다린다. `get_canvas_png` / `extract_region` / `remove_background` / `save_png` / 객체 검출·추출 / OCR도 미완료 그리기가 있으면 자동으로 최대 5초 기다린다. 시간 초과나 렌더링 오류가 나면 오래된 이미지로 읽기·저장을 진행하지 않는다.
-
-## 도구 목록 (v0.5 / v0.6)
-
-### 연결
-| Tool | 설명 |
-|---|---|
-| `ping` | 브릿지 상태, 캔버스 크기, pending op 수, auto-commit 가용 여부 |
-| `commit` | 큐에 쌓인 op들을 강제로 커밋 시도 (Ctrl+F 시뮬레이션 또는 reflection) |
-| `wait_for_idle` | 호출 시점까지 큐에 들어간 그리기의 모든 타일 렌더링과 스냅샷 갱신을 기다림. `timeoutMs` 기본 5000, 범위 0–60000. 커밋 요청은 보내지 않음 |
-| `set_auto_commit` | 자동 커밋 on/off 토글. 배치 작업할 때 끄고 마지막에 `commit` 호출 |
-
-### 그리기 (큐, 자동 커밋 시도)
-| Tool | 설명 |
-|---|---|
-| `fill` | 영역 또는 전체를 RGBA 단색으로 채움 |
-| `draw_rectangle` | 사각형 (외곽선/채움, 두께) |
-| `draw_line` | 선 (Bresenham + 두께) |
-| `draw_ellipse` | 타원 (외곽선/채움) |
-| `draw_polygon` | 다각형 (점 배열, 외곽선/채움, even-odd) |
-| `draw_text` | 텍스트 (시스템 폰트, 굵게/기울임/AA) |
-| `flood_fill` | 페인트 통 (시드 픽셀 + 톨러런스) |
-| `gradient_fill` | 선형/방사형 그라디언트 |
-| `paste_image` | base64 PNG를 (x,y)에 붙이기 (alpha-over 또는 replace) |
-
-### 읽기 / 저장 (스냅샷 기반)
-| Tool | 설명 |
-|---|---|
-| `get_canvas_png` | 현재 캔버스(또는 영역)를 base64로 반환. format='png'/'webp'/'jpeg' 선택. `maybe_stale` 플래그로 미커밋 상태 표시 |
-| `save_png` | 캔버스(또는 영역)를 호스트 파일 경로로 저장. 확장자(`.png`/`.webp`/`.jpg`)로 포맷 자동 추론 또는 `format` 명시 |
-| `extract_region` | 특정 영역만 추출. 옵션으로 디스크 저장. `savePath` 있으면 `includeBase64` 기본값 false (응답 폭발 방지) |
-| `remove_background` | 누끼 따기 (color_key / auto_corners, 톨러런스, feather). 옵션으로 디스크 저장 + 옵션으로 원 좌표에 다시 붙여 캔버스를 투명화. WebP 저장 가능 |
-
-### 객체 검출 (v0.4)
-| Tool | 설명 |
-|---|---|
-| `detect_objects` | 균일 배경 위의 객체(아이콘 등)들의 bbox를 자동 검출. Connected-components + tolerance/minSize/maxSize/groupGap/maxAspectRatio 필터. 행 단위 정렬 |
-| `extract_objects` | 검출 + 각 bbox별 PNG/WebP/JPEG 저장 일괄. `savePathTemplate`에 `{i:000}`, `{x}` 등 placeholder 지원 |
-
-### 레이어 / 문서 (v0.5, reflection 기반)
-| Tool | 설명 |
-|---|---|
-| `list_layers` | 활성 문서의 레이어 목록 (인덱스/이름/크기/가시성/활성 여부) |
-| `add_layer` | 새 투명 BitmapLayer 추가 |
-| `delete_layer` | 인덱스로 레이어 삭제 (마지막 1개는 삭제 불가) |
-| `select_layer` | 활성 레이어 변경 |
-| `save_pdn` | 현재 문서를 `.pdn` 파일로 저장 |
-| `list_effects` | Paint.NET에 등록된 모든 내장 효과 enumerate |
-| `apply_effect` | 이름으로 내장 효과 호출 (Gaussian Blur, Sharpen, Auto-Level 등) |
-
-리플렉션이라 Paint.NET 5 마이너 업데이트마다 깨질 수 있음. `ping` 응답의 `Probe` 필드로 각 서비스가 해결됐는지 확인.
-
-### Selection / OCR / AI 매팅 (v0.6)
-| Tool | 설명 |
-|---|---|
-| `set_selection_rect` | 사각형 선택 영역. 이후 모든 drawing op이 이 영역 안에서만 작동 |
-| `set_selection_polygon` | 다각형 선택 (소프트웨어 측만, Paint.NET UI에는 표시 안 됨) |
-| `clear_selection` | 선택 해제 |
-| `ocr_region` | Tesseract CLI로 영역 OCR. `lang=kor`로 한국어 인식. `winget install UB-Mannheim.TesseractOCR` 필요 |
-| `remove_background method=ai` | rembg CLI (U²-Net) 호출. 머리카락/그라데이션 배경 OK. `pip install rembg[cli]` 필요 |
-
-**포맷 옵션 (v0.3)**:
-- `format`: `auto` (기본; 경로 확장자에서 추론, 없으면 PNG) | `png` | `webp` | `jpeg`
-- `quality`: 1-100, 기본 85. PNG는 무시, WebP/JPEG에 적용
-- `includeBase64`: `null`이면 자동 (savePath 있으면 false, 없으면 true). 응답에 base64 포함 여부 직접 제어 가능
-- `applyToLayer=true`인 누끼 매팅은 캔버스에 다시 붙일 때 항상 PNG (무손실) 사용
-
-## 누끼 따기 한 줄 워크플로
-
-```
-1. get_canvas_png format=webp quality=70   (선택: 영역 확인용 — 응답 가벼움)
-2. remove_background x y w h method=auto_corners tolerance=40 feather=true
-                    savePath="C:\out\nukki.webp" applyToLayer=true
-                    (savePath 있으니 includeBase64는 자동으로 false → 응답 작음)
-3. (자동 커밋되면) Paint.NET 캔버스도 해당 영역이 투명해짐
+```text
+extract_objects(
+  savePathTemplate="C:\out\icon_{i:000}.webp",
+  tolerance=40, minSize=40, maxSize=200,
+  padding=4, groupGap=8, maxAspectRatio=3.0,
+  format="webp", quality=90
+)
 ```
 
-## 아이콘 시트 자르기 (v0.4)
+`padding`은 객체 주변 여백, `groupGap`은 분리된 조각을 합치는 거리입니다. 추출 전에 경계를 검토하려면 `detect_objects`를 먼저 호출하세요.
 
-흰 배경의 아이콘 모음에서 각 아이콘만 추출:
+## 구조
 
+```text
+MCP 클라이언트
+  └─ stdio → PaintDotNetMcp.Server
+                └─ Named Pipe → Paint.NET / PaintDotNetMcp.Bridge
 ```
-extract_objects savePathTemplate="C:\out\icon_{i:000}.webp"
-                tolerance=40 minSize=40 maxSize=200 padding=4
-                groupGap=8 maxAspectRatio=3.0
-                format=webp quality=90
-```
 
-- `tolerance=40` — 흰색에 가까운 픽셀 (JPEG 압축 가장자리 포함) 모두 배경 처리
-- `minSize=40` / `maxSize=200` — 노이즈·텍스트·전체 캔버스 영역 제거
-- `padding=4` — bbox 주변 여유 픽셀
-- `groupGap=8` — 분리된 조각 (i 위 점, 점선 등) 합치기
-- `maxAspectRatio=3.0` — 폭/높이 3배 초과는 텍스트 행으로 보고 제거
+| 프로젝트 | 역할 |
+| --- | --- |
+| [Server](src/PaintDotNetMcp.Server) | MCP 도구 제공 및 요청 중계 |
+| [Bridge](src/PaintDotNetMcp.Bridge) | Paint.NET 효과 실행, 렌더링 및 이미지 처리 |
+| [Contracts](src/PaintDotNetMcp.Contracts) | 프로세스 간 공용 메시지 타입 |
 
-라벨/캡션까지 포함하려면 `groupGap=40`, `maxAspectRatio=6.0`. 라벨 자체는 OCR 없으니 의미 있는 파일명을 원하면 LLM이 보고 후처리.
+Bridge의 파이프 서버는 최초 효과 실행 후 Paint.NET 프로세스가 종료될 때까지 유지됩니다. 기본 파이프 이름은 `PaintDotNetMcp.Bridge.v1`입니다.
 
-검출만 하고 좌표 보고 싶으면 `detect_objects`. 좌표 직접 검토 후 따로 `extract_region` 호출도 가능.
+## 검증
 
-## 자동 커밋 (auto-commit)
+0.5.16은 Paint.NET 5.1.12의 1400×1050 캔버스에서 다음을 확인했습니다.
 
-큐에 op이 추가될 때마다 브릿지가 다음을 시도한다:
+- Ctrl+F 없이 자동으로 전체 채우기와 우측 하단 사각형 반영
+- 자동 실행을 끈 상태에서 명시적 `commit`으로 배치 적용
+- `wait_for_idle` 성공, 대기 작업 0, 렌더링 오류 없음
+- 저장 PNG를 다시 열어 전체 색상 픽셀 수와 좌표 검증
 
-1. **Reflection**: Effect의 `Services` 컨테이너에서 "Repeat last effect" 명령을 찾아 호출.
-2. **Win32 fallback**: `PostMessage(hwnd, Ctrl+F)`로 Paint.NET 메인 윈도우에 키 입력 전달.
+회귀 검증은 병렬 타일 렌더링, 호스트의 재사용 ROI 배열, 취소 후 재시도, 선택 영역, MCP stdio·파이프 연결, 저장 이미지, 오류 처리와 UI 실행 예약을 포함한 9개 항목입니다. 레이어·문서·OCR·AI 배경 제거 등 전체 도구의 실제 앱 동작을 모두 검증한 결과는 아닙니다.
 
-둘 다 실패하면 사용자가 직접 메뉴/Ctrl+F를 눌러야 한다. `ping` 응답의 `AutoCommitAvailable` 필드로 가용성 확인 가능. 그리기 응답의 `auto_triggered`는 커밋 요청 전송 여부이며, 렌더링 완료를 뜻하지 않는다. 큐 응답은 `completed=false`와 `revision`, `commit_note`를 반환한다. 기존 `auto_committed`는 오인 방지를 위해 항상 false로 유지한다. `commit`의 `AppliedOpCount`도 요청 시점에는 0이며, `QueuedOpCount`가 대기 작업 수다.
-
-`wait_for_idle`의 `completed=true`는 모든 요청 ROI가 복사되고 읽기·저장용 스냅샷이 갱신됐다는 뜻이다. Paint.NET의 최종 효과 수락이나 Undo 이력 반영은 관찰하지 않는다. `ping`의 `QueuedRevision`, `CompletedRevision`, `RenderError`로 진행과 오류를 확인할 수 있다. 렌더링이 취소되면 작업은 큐에 남아 다음 MCP Bridge 실행에서 재시도된다. 잘못된 작업 자체가 렌더링을 실패시키면 오류가 반환되며, 브리지를 재시작하기 전까지 해당 작업은 큐에 남는다.
-
-### 타일 렌더링 수정 (0.5.14)
-
-[PR #1](https://github.com/Ellencia/paintdotnet-mcp/pull/1)의 사전 합성 접근을 적용했다. `OnSetRenderInfo`에서 작업을 한 번 합성하고, 병렬 `OnRender`는 각 타일을 복사한다. 효과 인스턴스별 버퍼를 사용하며, 모든 ROI 완료 후에만 스냅샷을 공개한다. 선택 영역 밖의 픽셀은 원본 그대로 유지한다.
-
-0.5.15에서는 완료 판정을 배열 인덱스 대신 선택 영역의 실제 픽셀 커버리지로 수정했다. Paint.NET 5.1.12는 각 타일에 별도의 재사용 배열을 넘기며, 유효 길이보다 배열 용량이 클 수 있다. 사용하지 않는 칸이나 반복된 타일은 완료를 앞당기거나 막지 않는다.
-
-실제 Paint.NET 5.1.12의 1400×1050 캔버스에서 전체 채우기와 우측 하단 100×100 사각형을 적용하고, `wait_for_idle` 성공·대기 작업 0·완료 리비전 2를 확인했다. 저장한 PNG를 재열어 전체 색상 픽셀 수와 네 모서리·사각형 내부를 검증했다. 이 검증에서는 자동 Ctrl+F 전송만으로 렌더링이 시작되지 않아 사용자가 수동으로 Ctrl+F를 눌렀다. 자동 트리거 성공은 실제 실행 완료를 보장하지 않는다.
-
-회귀 검증은 Paint.NET 설치와 .NET 9 SDK가 있는 Windows에서 실행한다. Paint.NET 배포 DLL의 사전 컴파일 코드가 시스템 런타임과 다를 수 있어 테스트에서는 ReadyToRun을 끈다.
+Paint.NET과 .NET 9 SDK가 설치된 Windows에서 실행합니다. 테스트는 별도 파이프를 사용합니다. 설치된 Paint.NET DLL과 시스템 런타임의 사전 컴파일 코드 차이를 피하기 위해 ReadyToRun을 끕니다.
 
 ```powershell
 $env:COMPlus_ReadyToRun = '0'
-dotnet run --project tests/PaintDotNetMcp.Regression -c Release
-Remove-Item Env:COMPlus_ReadyToRun
+try {
+    dotnet run --project tests\PaintDotNetMcp.Regression -c Release
+} finally {
+    Remove-Item Env:COMPlus_ReadyToRun
+}
 ```
 
-주의: Ctrl+F 단축키가 Paint.NET 설정에서 변경되어 있다면 fallback이 작동하지 않는다.
+타일 사전 합성은 [PR #1](https://github.com/Ellencia/paintdotnet-mcp/pull/1)의 기여를 반영했습니다. 0.5.15에서는 선택 영역의 픽셀 커버리지로 완료 판정을 수정했으며, 0.5.16에서는 키 메시지 전송을 직접 효과 실행으로 대체했습니다.
 
-## 현재 한계
+## 문제 해결 및 한계
 
-- Effect 플러그인은 "현재 활성 레이어의 픽셀"만 안전하게 변경할 수 있다. 레이어 추가/삭제, 문서 저장(.pdn), 다른 도구 동작은 Paint.NET 5의 공식 플러그인 API 범위 밖. 이 부분은 reflection으로 깊이 들어가야 하며 버전 업데이트마다 깨질 가능성이 있어 v0.2에는 미포함.
-- 텍스트 렌더링은 GDI+(System.Drawing) 기반이라 폰트 힌팅이 Paint.NET 내부 텍스트 도구와 미묘하게 다를 수 있음.
-- 누끼 알고리즘은 단순 color-key + euclidean tolerance. 복잡한 배경/머리카락 같은 건 ML 기반 도구가 필요.
-- Auto-commit Ctrl+F는 Paint.NET 메인 윈도우가 활성화돼 있어야 안정적임. 다른 앱 위에 가려져 있어도 PostMessage 자체는 가는데, 일부 메뉴 구현이 입력 큐를 무시할 수 있음.
+| 증상 | 확인할 사항 |
+| --- | --- |
+| Bridge 연결 실패 | Paint.NET에서 MCP Bridge를 한 번 실행했는지 확인 |
+| 플러그인이 메뉴에 없음 | Effects 폴더의 배포 파일과 Paint.NET의 플러그인 오류 확인 |
+| 배포 시 Access denied | 관리자 PowerShell에서 실행 |
+| 빌드 시 PaintDotNet DLL을 찾지 못함 | `PaintDotNetDir`이 실제 설치 경로인지 확인 |
+| 자동 실행 또는 대기 실패 | `commit_note`, `ping.RenderError` 확인 후 메뉴에서 MCP Bridge 재실행 |
+| 이미지 스냅샷이 없음 | 문서를 열고 MCP Bridge를 실행해 초기 스냅샷 생성 |
+| 클라이언트에서 도구가 보이지 않음 | 실행 파일 경로, 설정 적용 범위, 클라이언트 재시작 여부 확인 |
 
-## 다음에 추가할 만한 것
+자동 실행과 레이어·문서 조작은 내부 API를 reflection으로 호출하므로 Paint.NET 업데이트 시 호환성 확인이 필요합니다. `AutoCommitAvailable`은 MainForm 발견 여부이며 실행 성공을 보장하지 않습니다.
 
-- `apply_builtin_effect` — Gaussian Blur, Auto-Level 같은 내장 효과 트리거 (deeper reflection 필요)
-- `save_pdn` / `export_*` — 파일 저장 (reflection 또는 메뉴 자동화)
-- 레이어 추가/삭제/병합 (reflection on DocumentWorkspace)
-- 더 정교한 매팅 (chroma + edge refine, 또는 외부 ML 모델 호출)
+렌더링이 취소되면 작업은 큐에 남아 다음 실행에서 재시도됩니다. 잘못된 이미지 데이터처럼 작업 자체가 렌더링을 실패시키는 경우 해당 작업도 큐에 남으므로, 원인을 수정한 뒤 Paint.NET을 재시작해야 합니다.
 
-## 트러블슈팅
-
-- **Bridge에 연결 못 함**: Paint.NET이 실행 중인지, `Effects > Tools > MCP Bridge`를 한 번 실행했는지 확인.
-- **플러그인이 메뉴에 안 보임**: Effects 폴더에 `PaintDotNetMcp.Bridge.dll` + `PaintDotNetMcp.Contracts.dll` (+ `System.Drawing.Common.dll` 필요시) 있는지, .NET 버전이 9인지.
-- **빌드 시 PaintDotNet.* 못 찾음**: `PaintDotNetDir` MSBuild 속성이 실제 설치 경로를 가리키는지.
-- **`get_canvas_png`가 "no snapshot yet" 반환**: 아직 한 번도 effect가 렌더되지 않은 것. `Effects > Tools > MCP Bridge`를 한 번 실행하면 스냅샷이 채워짐.
-- **자동 커밋이 안 됨**: `ping` 결과의 `AutoCommitAvailable`이 false면 reflection/HWND 둘 다 실패한 것. Ctrl+F 단축키가 살아있는지, Paint.NET이 포커스된 적 있는지 확인. 마지막 수단으로 `commit` 도구를 명시적으로 호출.
+읽기 도구는 브리지의 렌더링 스냅샷을 사용합니다. Paint.NET에서 수동으로 편집한 결과를 읽으려면 MCP Bridge를 다시 실행해 스냅샷을 갱신하세요. 텍스트 렌더링은 GDI+ 기반으로 Paint.NET 텍스트 도구와 결과가 다를 수 있습니다.

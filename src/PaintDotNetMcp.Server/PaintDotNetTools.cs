@@ -22,8 +22,8 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     }
 
     [McpServerTool, Description(
-        "Force-commit any queued operations by triggering Paint.NET's 'Repeat last effect' " +
-        "(Ctrl+F) on the main window. Best-effort; if it fails the user must invoke " +
+        "Request execution of the registered MCP Bridge effect on Paint.NET's UI thread " +
+        "to apply queued operations. Best-effort; if it fails the user must invoke " +
         "Effects > Tools > MCP Bridge manually. AutoTriggered means a trigger was sent, not " +
         "render completion. Call wait_for_idle to confirm rendering and snapshot readiness.")]
     public async Task<string> Commit(CancellationToken ct = default)
@@ -44,8 +44,8 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     }
 
     [McpServerTool, Description(
-        "Toggle automatic commit. When enabled (default), each queued op tries to trigger Ctrl+F " +
-        "after a short debounce. Disable when you want to batch many ops and commit explicitly via " +
+        "Toggle automatic commit. When enabled (default), queued ops request direct execution " +
+        "of MCP Bridge on the UI thread. Disable when you want to batch many ops and commit explicitly via " +
         "the commit tool.")]
     public async Task<string> SetAutoCommit(bool enabled, CancellationToken ct = default)
     {
