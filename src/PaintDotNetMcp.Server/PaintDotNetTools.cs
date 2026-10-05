@@ -56,6 +56,22 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     // ---- Drawing primitives (queued) ---------------------------------------
 
     [McpServerTool, Description(
+        "Open an existing image or .pdn document by absolute local path in Paint.NET and activate it. " +
+        "Uses Paint.NET's native file loader and immediately prepares the read/save snapshot. " +
+        "Existing edited documents remain open. Finish any active batch or pending drawing first. " +
+        "Paint.NET may show a format-specific loading or error dialog.")]
+    public async Task<string> OpenImage(string path, CancellationToken ct = default)
+        => (await bridge.CallAsync("open_image", new OpenImageParams { Path = path }, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description(
+        "Create and activate a new white canvas using Paint.NET's native document creation, at 96 DPI. " +
+        "Width/height default to 800x600; each must be 1..16384 pixels, at most 64 million pixels total. " +
+        "Prepares the read/save snapshot immediately and preserves existing edited documents. " +
+        "Finish any active batch or pending drawing first.")]
+    public async Task<string> NewCanvas(int width = 800, int height = 600, CancellationToken ct = default)
+        => (await bridge.CallAsync("new_canvas", new NewCanvasParams { Width = width, Height = height }, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description(
         "Begin a drawing batch on the active document and layer. Drawing is queued until end_batch " +
         "runs MCP Bridge once, producing one Undo step. Rejects nested batches and pending drawing. " +
         "Do not change the active tab, layer, selection, or edit manually during a batch.")]

@@ -217,7 +217,7 @@ internal static class BridgeServer
 
         try
         {
-            if (HistoryOps.BatchActive && req.Method is "commit" or "set_auto_commit" or
+            if (HistoryOps.BatchActive && req.Method is "open_image" or "new_canvas" or "commit" or "set_auto_commit" or
                 "add_layer" or "delete_layer" or "select_layer" or "apply_effect" or
                 "set_selection_rect" or "set_selection_polygon" or "clear_selection")
                 throw new InvalidOperationException("Finish the active batch with end_batch before this operation.");
@@ -236,6 +236,8 @@ internal static class BridgeServer
             return req.Method switch
             {
                 "ping"               => Ok(req.Id, BuildPingResult()),
+                "open_image"         => Ok(req.Id, DocumentOps.Open(req.Params?.Deserialize<OpenImageParams>() ?? new())),
+                "new_canvas"         => Ok(req.Id, DocumentOps.Create(req.Params?.Deserialize<NewCanvasParams>() ?? new())),
                 "fill"               => QueueOp<FillParams>(req, p => new FillOp(p)),
                 "draw_rect"          => QueueOp<DrawRectangleParams>(req, p => new DrawRectOp(p)),
                 "draw_line"          => QueueOp<DrawLineParams>(req, p => new DrawLineOp(p)),

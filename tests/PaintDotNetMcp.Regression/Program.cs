@@ -34,6 +34,11 @@ static async Task Run()
     {
         if (!condition) throw new Exception(message);
     }
+    foreach (var invalidSize in new[] { (0, 600), (-1, 600), (16385, 1), (10000, 10000) })
+        Check(!Call("new_canvas", new NewCanvasParams { Width = invalidSize.Item1, Height = invalidSize.Item2 }).Ok, "Invalid or excessive canvas dimensions rejected before UI mutation");
+    Check(!Call("open_image", new OpenImageParams { Path = "relative.png" }).Ok, "Relative image path rejected");
+    Check(!Call("open_image", new OpenImageParams { Path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".png") }).Ok, "Missing image rejected before native loading");
+    Console.WriteLine("PASS document input validation prevents invalid native operations");
     object Prepare(Surface source, Rectangle[]? scans = null) =>
         prepare.Invoke(null, [effect, new RenderArgs(source), scans ?? [source.Bounds]])!;
     static void Render(object batch, Surface destination, Rectangle[] rois, int index, int count) =>
@@ -61,6 +66,7 @@ static async Task Run()
         Check(Call("ping").Result!.Value.GetProperty("SnapshotReady").GetBoolean(), "Opening a document recovers snapshot readiness");
         Check(Call("begin_batch").Ok, "Begin batch");
         Check(!Call("begin_batch").Ok, "Nested batch rejected");
+        Check(!Call("new_canvas").Ok && !Call("open_image").Ok, "Document changes rejected during batch");
         Check(!Call("undo").Ok && !Call("redo").Ok, "History changes rejected during batch");
         Check(!Call("commit").Ok && !Call("set_auto_commit", new SetAutoCommitParams { Enabled = true }).Ok, "Batch cannot be split by commit or auto-commit");
         historyApp.ActiveDocumentWorkspace = new TestHistoryWorkspace(new TestHistoryLayer(historySurface));
@@ -90,6 +96,7 @@ static async Task Run()
     Check(queued.Ok && !queued.Result!.Value.GetProperty("auto_committed").GetBoolean(), "Queue must not claim completion");
     Check(!Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 0 }).Ok, "Queued op must not complete");
     Check(!Call("begin_batch").Ok && !Call("undo").Ok && !Call("redo").Ok, "Unapplied drawing blocks history and batch boundaries");
+    Check(!Call("new_canvas").Ok, "Unapplied drawing blocks new document creation");
     var rois = Enumerable.Range(0, 30).Select(i => new Rectangle(i % 5 * 160, i / 5 * 100, 160, 100)).ToArray();
     var batch = Prepare(source);
     Render(batch, destination, rois, 0, 1);
@@ -257,7 +264,7 @@ static async Task CheckMcpProtocol()
         await Request(1, "initialize", new { protocolVersion = "2024-11-05", capabilities = new { }, clientInfo = new { name = "regression", version = "1" } });
         await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
         var list = await Request(2, "tools/list", new { });
-        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo" })
+        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo", "new_canvas", "open_image" })
             if (!list.GetProperty("tools").EnumerateArray().Any(tool => tool.GetProperty("name").GetString() == required))
                 throw new Exception(required + " missing from MCP tools/list");
         var called = await Request(3, "tools/call", new { name = "wait_for_idle", arguments = new { timeoutMs = 0 } });
