@@ -23,6 +23,7 @@ await Run();
 static async Task Run()
 {
     await CheckVersionGuard();
+    CheckLayerTransforms();
     var server = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.BridgeServer")!;
     var dispatch = server.GetMethod("Dispatch", BindingFlags.NonPublic | BindingFlags.Static)!;
     var prepare = server.GetMethod("PrepareRenderPass", BindingFlags.Public | BindingFlags.Static)!;
@@ -39,6 +40,8 @@ static async Task Run()
     Check(!Call("open_image", new OpenImageParams { Path = "relative.png" }).Ok, "Relative image path rejected");
     Check(!Call("open_image", new OpenImageParams { Path = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".png") }).Ok, "Missing image rejected before native loading");
     Console.WriteLine("PASS document input validation prevents invalid native operations");
+    Check(!Call("transform_layer", new TransformLayerParams { ScaleX = 0 }).Ok, "Invalid transform is not queued");
+    Check(!Call("transform_layer", new TransformLayerParams { Interpolation = "invalid" }).Ok, "Invalid interpolation is not queued");
     object Prepare(Surface source, Rectangle[]? scans = null) =>
         prepare.Invoke(null, [effect, new RenderArgs(source), scans ?? [source.Bounds]])!;
     static void Render(object batch, Surface destination, Rectangle[] rois, int index, int count) =>
@@ -264,7 +267,7 @@ static async Task CheckMcpProtocol()
         await Request(1, "initialize", new { protocolVersion = "2024-11-05", capabilities = new { }, clientInfo = new { name = "regression", version = "1" } });
         await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
         var list = await Request(2, "tools/list", new { });
-        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo", "new_canvas", "open_image" })
+        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo", "new_canvas", "open_image", "transform_layer" })
             if (!list.GetProperty("tools").EnumerateArray().Any(tool => tool.GetProperty("name").GetString() == required))
                 throw new Exception(required + " missing from MCP tools/list");
         var called = await Request(3, "tools/call", new { name = "wait_for_idle", arguments = new { timeoutMs = 0 } });
@@ -279,6 +282,36 @@ static async Task CheckMcpProtocol()
         if (!process.HasExited) process.Kill(entireProcessTree: true);
         await process.WaitForExitAsync();
     }
+}
+
+static void CheckLayerTransforms()
+{
+    var type = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.TransformLayerOp")!;
+    void Apply(Surface surface, TransformLayerParams parameters)
+        => type.GetMethod("Apply")!.Invoke(Activator.CreateInstance(type, parameters), [surface]);
+    static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
+    using var surface = new Surface(4, 4);
+    var clear = ColorBgra.FromBgra(0, 0, 0, 0);
+    var red = ColorBgra.FromBgra(0, 0, 255, 255);
+    surface.Fill(clear); surface[0, 1] = red;
+    Apply(surface, new() { OffsetX = 1, OffsetY = 2, Interpolation = "nearest" });
+    Check(surface[1, 3] == red && surface[0, 1].A == 0, "Translation moves pixels and clears old location");
+    surface.Fill(clear); surface[0, 1] = red;
+    Apply(surface, new() { AngleDegrees = 90, Interpolation = "nearest" });
+    Check(surface[2, 0] == red && surface[0, 1].A == 0, "Clockwise rotation around canvas center");
+    surface.Fill(clear); surface[0, 0] = red;
+    Apply(surface, new() { ScaleX = 2, ScaleY = 2, PivotX = 0, PivotY = 0, Interpolation = "nearest" });
+    Check(surface[0, 0] == red && surface[1, 1] == red && surface[2, 0].A == 0, "Scale around explicit origin");
+    surface.Fill(clear); surface[0, 0] = red; surface[1, 0] = ColorBgra.FromBgra(0, 255, 0, 0);
+    Apply(surface, new() { OffsetX = 0.5 });
+    Check(surface[1, 0].R == 255 && surface[1, 0].G == 0 && surface[1, 0].A == 128, "Bilinear alpha interpolation avoids transparent-color halos");
+    surface.Fill(clear); surface[3, 3] = red;
+    Apply(surface, new() { OffsetX = 1, OffsetY = 1 });
+    Check(Enumerable.Range(0, 16).All(i => surface[i % 4, i / 4].A == 0), "Pixels outside canvas are clipped");
+    surface.Fill(red);
+    Apply(surface, new());
+    Check(Enumerable.Range(0, 16).All(i => surface[i % 4, i / 4] == red), "Identity preserves every pixel");
+    Console.WriteLine("PASS layer translation, clockwise rotation, pivot scaling, alpha-aware interpolation, clipping, and identity");
 }
 
 static async Task CheckVersionGuard()

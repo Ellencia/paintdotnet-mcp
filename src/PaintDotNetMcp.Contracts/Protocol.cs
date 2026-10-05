@@ -17,7 +17,7 @@ namespace PaintDotNetMcp.Contracts;
 
 public static class PipeNames
 {
-    public const string BridgeVersion = "0.5.19";
+    public const string BridgeVersion = "0.5.20";
     public const string Default = "PaintDotNetMcp.Bridge.v1";
     // Allow regression processes to use an isolated pipe without touching a live canvas.
     public static string Current => Environment.GetEnvironmentVariable("PAINTDOTNET_MCP_PIPE_NAME") ?? Default;
@@ -54,6 +54,18 @@ public sealed class NewCanvasParams
 {
     public int Width { get; set; } = 800;
     public int Height { get; set; } = 600;
+}
+
+public sealed class TransformLayerParams
+{
+    public double OffsetX { get; set; }
+    public double OffsetY { get; set; }
+    public double ScaleX { get; set; } = 1;
+    public double ScaleY { get; set; } = 1;
+    public double AngleDegrees { get; set; }
+    public double? PivotX { get; set; }
+    public double? PivotY { get; set; }
+    public string Interpolation { get; set; } = "bilinear";
 }
 
 public sealed class DocumentOpResult

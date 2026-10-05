@@ -56,6 +56,23 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     // ---- Drawing primitives (queued) ---------------------------------------
 
     [McpServerTool, Description(
+        "Transform pixels on the active layer: scale around the pivot, rotate clockwise, then translate. " +
+        "Offsets are pixels; scales are positive factors (1 unchanged, 0.5 half, 2 double); angle is degrees. " +
+        "Pivot defaults to the canvas center, with coordinates measured from the top-left canvas edge. " +
+        "Canvas size stays fixed: pixels outside are clipped and uncovered pixels become transparent. " +
+        "Interpolation is bilinear (smooth, alpha-aware) or nearest (pixel art). " +
+        "The current selection clips the destination; clear_selection first to transform the entire layer. " +
+        "Supports begin_batch/end_batch and native Undo/Redo. Queued like drawing: wait_for_idle before reading or saving.")]
+    public async Task<string> TransformLayer(double offsetX = 0, double offsetY = 0,
+        double scaleX = 1, double scaleY = 1, double angleDegrees = 0,
+        double? pivotX = null, double? pivotY = null, string interpolation = "bilinear", CancellationToken ct = default)
+        => (await bridge.CallAsync("transform_layer", new TransformLayerParams
+        {
+            OffsetX = offsetX, OffsetY = offsetY, ScaleX = scaleX, ScaleY = scaleY,
+            AngleDegrees = angleDegrees, PivotX = pivotX, PivotY = pivotY, Interpolation = interpolation
+        }, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description(
         "Open an existing image or .pdn document by absolute local path in Paint.NET and activate it. " +
         "Uses Paint.NET's native file loader and immediately prepares the read/save snapshot. " +
         "Existing edited documents remain open. Finish any active batch or pending drawing first. " +

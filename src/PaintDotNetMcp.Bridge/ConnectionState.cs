@@ -8,6 +8,19 @@ internal static class ConnectionState
     // Snapshot initialization reads the active layer on the UI thread; no effect or history entry.
     public static void Update(PingResult result)
     {
+        // Render completion can be published before the host finishes accepting the effect.
+        // Wait on the pipe thread, never inside a UI callback that the effect may pump.
+        try
+        {
+            if (BridgeServer.PendingCount == 0 && !HistoryOps.BatchActive)
+                AutoCommit.WaitForExecutionIdle(5000);
+        }
+        catch (TimeoutException ex)
+        {
+            result.ConnectionStatus = "host_not_ready";
+            result.RecoveryAction = "Wait for the current Paint.NET effect to finish, then retry. " + ex.Message;
+            return;
+        }
         if (!AppServices.InvokeOnUiThread(() =>
         {
             var workspace = AppServices.AppWorkspaceService();
@@ -35,7 +48,6 @@ internal static class ConnectionState
             // Preserve the render-completion snapshot while operations are pending or grouped.
             if (BridgeServer.PendingCount == 0 && !HistoryOps.BatchActive)
             {
-                AutoCommit.WaitForExecutionIdle(0);
                 ImageIO.CaptureSnapshot(surface);
             }
             result.SnapshotReady = ImageIO.HasSnapshot;

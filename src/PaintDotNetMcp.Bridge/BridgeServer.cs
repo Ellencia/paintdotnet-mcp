@@ -247,6 +247,7 @@ internal static class BridgeServer
                 "flood_fill"         => QueueOp<FloodFillParams>(req, p => new FloodFillOp(p)),
                 "gradient_fill"      => QueueOp<GradientFillParams>(req, p => new GradientFillOp(p)),
                 "paste_image"        => QueueOp<PasteImageParams>(req, p => new PasteImageOp(p)),
+                "transform_layer"    => QueueOp<TransformLayerParams>(req, p => new TransformLayerOp(p)),
                 "get_canvas_png"     => HandleGetCanvasPng(req),
                 "save_png"           => HandleSavePng(req),
                 "extract_region"     => HandleExtractRegion(req),
