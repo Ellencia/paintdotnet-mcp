@@ -20,9 +20,27 @@ rembg와 Tesseract는 해당 기능을 사용할 때만 필요합니다. 한국�
 
 ## 설치
 
-저장소 루트에서 실행합니다. 배포 전에 작업을 저장하고 Paint.NET을 종료하세요. 기본 설치 경로의 Effects 폴더에 쓰려면 관리자 PowerShell이 필요합니다.
+저장소 루트의 일반 PowerShell에서 실행합니다. 먼저 작업을 저장하고 Paint.NET을 종료하세요.
+
+```powershell
+.\install.ps1
+# 다른 설치 경로
+.\install.ps1 -PaintDotNetDir 'D:\Apps\paint.net'
+```
+
+[install.ps1](install.ps1)은 서버와 Bridge를 빌드하고 플러그인 DLL 5개를 설치한 뒤 파일 해시를 확인합니다. 복사 권한이 부족하면 Windows UAC 창에서 관리자 권한을 요청합니다. Paint.NET이 실행 중이면 종료 안내와 함께 중단하며, 자동으로 종료하지 않습니다. 현재 저장소에서 빌드한 MCP 서버가 실행 중이면 빌드를 위해 종료합니다.
+
+설치 후 Paint.NET을 열고 **Effects > Tools > MCP Bridge**를 한 번 실행하세요. MCP 클라이언트도 다시 연결하면 됩니다. PowerShell 창은 닫아도 됩니다. 스크립트는 최초 설치와 코드 업데이트 때만 실행합니다.
+
+실행 정책으로 스크립트가 차단되는 환경에서는 이번 실행에만 다음 명령을 사용할 수 있습니다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
 
 ### 빌드 및 배포
+
+직접 빌드와 배포를 수행하는 경우의 명령입니다. 기본 설치 경로에 배포할 때는 관리자 PowerShell이 필요합니다.
 
 ```powershell
 dotnet build -c Release
@@ -40,7 +58,7 @@ dotnet build src\PaintDotNetMcp.Bridge\PaintDotNetMcp.Bridge.csproj -c Release -
 
 ### 배포 스크립트
 
-빌드와 복사를 한 번에 수행하려면 [deploy.ps1](deploy.ps1)을 사용할 수 있습니다.
+관리자 PowerShell에서 직접 배포하거나 기존 빌드 결과만 복사하려면 [deploy.ps1](deploy.ps1)을 사용할 수 있습니다. 자동 권한 요청을 포함한 설치는 위의 `install.ps1`을 사용하세요.
 
 ```powershell
 .\deploy.ps1
