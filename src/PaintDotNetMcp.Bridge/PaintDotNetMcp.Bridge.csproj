@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
-    <UseWindowsForms>false</UseWindowsForms>
+    <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>false</UseWPF>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <RootNamespace>PaintDotNetMcp.Bridge</RootNamespace>
@@ -18,7 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PaintDotNetMcp.Contracts\PaintDotNetMcp.Contracts.csproj" />
-    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" GeneratePathProperty="true" />
     <!-- SkiaSharp for WebP/JPEG encode/decode (PNG also via Skia for consistency).
          MIT/Apache 2.0. Native libSkiaSharp.dll is flattened into the output dir below
          so Paint.NET's plugin loader can resolve it next to PaintDotNetMcp.Bridge.dll. -->
@@ -27,6 +27,9 @@
   </ItemGroup>
 
   <Target Name="FlattenSkiaSharpNativeDll" AfterTargets="Build">
+    <!-- WinForms resolves Drawing from the framework; preserve the installer artifact. -->
+    <Copy SourceFiles="$(PkgSystem_Drawing_Common)\lib\net9.0\System.Drawing.Common.dll"
+          DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
     <ItemGroup>
       <_SkiaNativeDll Include="$(OutputPath)runtimes\win-x64\native\*.dll" />
     </ItemGroup>

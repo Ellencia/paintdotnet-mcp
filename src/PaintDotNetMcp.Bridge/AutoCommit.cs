@@ -11,6 +11,7 @@ internal static class AutoCommit
 
     public static bool Enabled = true;
     public static bool Available => AppServices.GetMainForm() is not null;
+    internal static bool IsExecuting { get { lock (Gate) return _scheduled; } }
 
     public static void WaitForExecutionIdle(int timeoutMs)
     {

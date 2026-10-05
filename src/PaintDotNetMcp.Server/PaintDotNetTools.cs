@@ -51,6 +51,10 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
         return result?.ToString() ?? "{}";
     }
 
+    [McpServerTool, Description("Open the native Paint.NET text editor window for the active MCP text layer, so the user can edit text, font, size, position and color directly. Returns after showing the window; it does not apply edits. The user chooses Apply or Cancel. Also available from Paint.NET's MCP > Text edit menu. Finish pending drawing/batches first; ordinary bitmap text cannot be edited.")]
+    public async Task<string> OpenTextEditor(CancellationToken ct = default)
+        => (await bridge.CallAsync("open_text_editor", null, ct))?.ToString() ?? "{}";
+
     [McpServerTool, Description("Preview the full document as an MCP image content block. Uses Paint.NET's native composition of visible layers, including opacity and blend modes. Optional crop; formats png, webp or jpeg. Leaves source layers and selection intact and adds no Undo history. Finish a drawing batch first. Uncommitted interactive tool overlays are not included.")]
     public async Task<CallToolResult> GetDocumentImage(int? x = null, int? y = null, int? width = null, int? height = null,
         string format = "png", int quality = 85, CancellationToken ct = default)

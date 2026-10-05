@@ -25,6 +25,7 @@ static async Task Run()
     await CheckVersionGuard();
     CheckLayerTransforms();
     CheckComposite();
+    TextEditorChecks.Run();
     var server = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.BridgeServer")!;
     var dispatch = server.GetMethod("Dispatch", BindingFlags.NonPublic | BindingFlags.Static)!;
     var prepare = server.GetMethod("PrepareRenderPass", BindingFlags.Public | BindingFlags.Static)!;
@@ -295,7 +296,7 @@ static async Task CheckMcpProtocol()
         await Request(1, "initialize", new { protocolVersion = "2024-11-05", capabilities = new { }, clientInfo = new { name = "regression", version = "1" } });
         await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
         var list = await Request(2, "tools/list", new { });
-        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo", "new_canvas", "open_image", "transform_layer", "get_selection", "copy_selection_to_layer", "resize_canvas", "crop_to_selection", "draw_text", "create_text_layer", "update_text_layer", "get_text_layer", "list_text_layers", "get_document_image", "export_document" })
+        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo", "new_canvas", "open_image", "transform_layer", "get_selection", "copy_selection_to_layer", "resize_canvas", "crop_to_selection", "draw_text", "create_text_layer", "update_text_layer", "get_text_layer", "list_text_layers", "open_text_editor", "get_document_image", "export_document" })
             if (!list.GetProperty("tools").EnumerateArray().Any(tool => tool.GetProperty("name").GetString() == required))
                 throw new Exception(required + " missing from MCP tools/list");
         var called = await Request(3, "tools/call", new { name = "wait_for_idle", arguments = new { timeoutMs = 0 } });

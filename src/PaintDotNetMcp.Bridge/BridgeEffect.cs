@@ -41,6 +41,7 @@ public sealed class BridgeEffect : PropertyBasedEffect
     {
         // Start the background pipe server on first construction. Idempotent.
         BridgeServer.EnsureStarted(this);
+        TextEditor.EnsureMenuRegistration();
     }
 
     protected override PropertyCollection OnCreatePropertyCollection()
