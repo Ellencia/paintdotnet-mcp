@@ -30,7 +30,7 @@ rembg와 Tesseract는 해당 기능을 사용할 때만 필요합니다. 한국�
 
 [install.ps1](install.ps1)은 서버와 Bridge를 빌드하고 플러그인 DLL 5개를 설치한 뒤 파일 해시를 확인합니다. 복사 권한이 부족하면 Windows UAC 창에서 관리자 권한을 요청합니다. Paint.NET이 실행 중이면 종료 안내와 함께 중단하며, 자동으로 종료하지 않습니다. 현재 저장소에서 빌드한 MCP 서버가 실행 중이면 빌드를 위해 종료합니다.
 
-설치 후 Paint.NET을 열고 **Effects > Tools > MCP Bridge**를 한 번 실행하세요. MCP 클라이언트도 다시 연결하면 됩니다. PowerShell 창은 닫아도 됩니다. 스크립트는 최초 설치와 코드 업데이트 때만 실행합니다.
+설치 후 Paint.NET에서 캔버스를 열고 MCP 클라이언트를 다시 연결하세요. Bridge는 플러그인 검색 중 시작되며, 연결 후 초기 스냅샷을 준비합니다. PowerShell 창은 닫아도 됩니다. 스크립트는 최초 설치와 코드 업데이트 때만 실행합니다.
 
 실행 정책으로 스크립트가 차단되는 환경에서는 이번 실행에만 다음 명령을 사용할 수 있습니다.
 
@@ -107,8 +107,8 @@ Claude Desktop에서는 `%APPDATA%\Claude\claude_desktop_config.json`에 설정�
 ## 사용법
 
 1. Paint.NET에서 이미지 또는 새 캔버스를 엽니다.
-2. **Effects > Tools > MCP Bridge**를 한 번 실행합니다. 백그라운드 연결과 초기 스냅샷이 준비됩니다.
-3. MCP 클라이언트에서 `ping`으로 버전과 연결 상태를 확인합니다.
+2. MCP 클라이언트를 연결합니다. Tools 메뉴를 누를 필요 없이 Bridge가 초기 스냅샷을 준비합니다.
+3. `ping`에서 `ConnectionStatus=ready`, `SnapshotReady=true`인지 확인합니다. 다른 상태이면 `RecoveryAction`의 안내를 따릅니다.
 4. 그리기 도구를 호출합니다. 기본 설정에서는 MCP Bridge가 자동으로 실행됩니다.
 5. `wait_for_idle`로 완료를 확인한 뒤 이미지를 읽거나 저장합니다.
 
@@ -235,7 +235,7 @@ MCP 클라이언트
 | [Bridge](src/PaintDotNetMcp.Bridge) | Paint.NET 효과 실행, 렌더링 및 이미지 처리 |
 | [Contracts](src/PaintDotNetMcp.Contracts) | 프로세스 간 공용 메시지 타입 |
 
-Bridge의 파이프 서버는 최초 효과 실행 후 Paint.NET 프로세스가 종료될 때까지 유지됩니다. 기본 파이프 이름은 `PaintDotNetMcp.Bridge.v1`입니다.
+Bridge의 파이프 서버는 플러그인 검색 중 생성자가 호출될 때 시작하며 Paint.NET 프로세스가 종료될 때까지 유지됩니다. 초기 스냅샷은 UI 스레드에서 활성 레이어를 읽어 준비하며 효과 실행이나 Undo 항목을 만들지 않습니다. 기본 파이프 이름은 `PaintDotNetMcp.Bridge.v1`입니다.
 
 ## 검증
 
@@ -249,6 +249,8 @@ Bridge의 파이프 서버는 최초 효과 실행 후 Paint.NET 프로세스가
 회귀 검증은 병렬 타일 렌더링, 호스트의 재사용 ROI 배열, 취소 후 재시도, 선택 영역, MCP stdio·파이프 연결, 저장 이미지, 오류 처리와 UI 실행 예약을 포함한 9개 항목입니다. 레이어·문서·OCR·AI 배경 제거 등 전체 도구의 실제 앱 동작을 모두 검증한 결과는 아닙니다.
 
 0.5.17은 Undo/Redo와 명시적 작업 묶음을 추가합니다. 배치 상태·문서 바인딩·빈 배치·빈 이력의 스냅샷 갱신을 포함한 회귀 검증 10개를 통과했습니다. 실제 Paint.NET 5.1.12의 1400×1050 캔버스에서는 그리기 3개가 Undo 한 단계로 기록되는 것을 확인했습니다. Undo 후 저장 PNG는 작업 전 이미지와, Redo 후 저장 PNG는 적용 결과와 전체 픽셀이 일치했습니다. 새 편집 후 Redo 이력 초기화와 빈 배치의 이력 미생성도 확인했습니다.
+
+0.5.18은 Paint.NET 5.1.12의 1400×1050 캔버스에서 Tools 메뉴를 실행하지 않고 `ConnectionStatus=ready`, `SnapshotReady=true`로 연결되는 것을 확인했습니다. 초기 스냅샷 저장·재개방과 자동 그리기 후 PNG의 전체 픽셀 검증도 통과했습니다. Paint.NET 미실행 안내가 실제 MCP 오류 응답에 전달되는 것을 확인했으며, 버전 불일치 시 수정 명령 차단과 문서 없음·재연결 상태를 포함한 회귀 검증 11개가 통과했습니다. 다른 Paint.NET 버전의 자동 시작은 별도 확인이 필요합니다.
 
 Paint.NET과 .NET 9 SDK가 설치된 Windows에서 실행합니다. 테스트는 별도 파이프를 사용합니다. 설치된 Paint.NET DLL과 시스템 런타임의 사전 컴파일 코드 차이를 피하기 위해 ReadyToRun을 끕니다.
 
@@ -267,16 +269,20 @@ try {
 
 | 증상 | 확인할 사항 |
 | --- | --- |
-| Bridge 연결 실패 | Paint.NET에서 MCP Bridge를 한 번 실행했는지 확인 |
+| `paintdotnet_not_running` | Paint.NET과 캔버스를 열고 재시도 |
+| `bridge_unavailable` | 시작이 끝난 뒤 재시도. 계속 실패하면 Tools 메뉴의 MCP Bridge 실행 또는 설치·플러그인 오류 확인 |
+| `bridge_version_mismatch` | Paint.NET 종료 → `install.ps1` → Paint.NET 실행 및 MCP 클라이언트 재연결 |
+| `ping.ConnectionStatus=no_document` / `no_active_layer` | 캔버스를 열거나 비트맵 레이어를 선택한 뒤 재시도 |
+| `ping.ConnectionStatus=host_not_ready` / `render_failed` | `RecoveryAction`에 표시된 시작·렌더 완료 대기 또는 재실행 안내 확인 |
 | 플러그인이 메뉴에 없음 | Effects 폴더의 배포 파일과 Paint.NET의 플러그인 오류 확인 |
 | 배포 시 Access denied | 관리자 PowerShell에서 실행 |
 | 빌드 시 PaintDotNet DLL을 찾지 못함 | `PaintDotNetDir`이 실제 설치 경로인지 확인 |
 | 자동 실행 또는 대기 실패 | `commit_note`, `ping.RenderError` 확인 후 메뉴에서 MCP Bridge 재실행 |
-| 이미지 스냅샷이 없음 | 문서를 열고 MCP Bridge를 실행해 초기 스냅샷 생성 |
+| 이미지 스냅샷이 없음 | 캔버스를 열고 `ping`의 `ConnectionStatus`와 `RecoveryAction` 확인 |
 | 클라이언트에서 도구가 보이지 않음 | 실행 파일 경로, 설정 적용 범위, 클라이언트 재시작 여부 확인 |
 
 자동 실행과 레이어·문서 조작은 내부 API를 reflection으로 호출하므로 Paint.NET 업데이트 시 호환성 확인이 필요합니다. `AutoCommitAvailable`은 MainForm 발견 여부이며 실행 성공을 보장하지 않습니다.
 
 렌더링이 취소되면 작업은 큐에 남아 다음 실행에서 재시도됩니다. 잘못된 이미지 데이터처럼 작업 자체가 렌더링을 실패시키는 경우 해당 작업도 큐에 남으므로, 원인을 수정한 뒤 Paint.NET을 재시작해야 합니다.
 
-읽기 도구는 브리지의 렌더링 스냅샷을 사용합니다. Paint.NET에서 수동으로 편집한 결과를 읽으려면 MCP Bridge를 다시 실행해 스냅샷을 갱신하세요. 텍스트 렌더링은 GDI+ 기반으로 Paint.NET 텍스트 도구와 결과가 다를 수 있습니다.
+읽기 도구는 대기 중인 렌더링 완료 후 활성 레이어의 스냅샷을 갱신합니다. 수동 편집 후에도 MCP Bridge를 다시 실행할 필요가 없습니다. 텍스트 렌더링은 GDI+ 기반으로 Paint.NET 텍스트 도구와 결과가 다를 수 있습니다.

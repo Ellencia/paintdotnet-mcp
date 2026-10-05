@@ -12,9 +12,9 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
 
     [McpServerTool, Description(
         "Ping the Paint.NET MCP Bridge plugin. Returns version, whether a document is open, " +
-        "canvas dimensions, pending op count, and whether auto-commit is available. Requires " +
-        "Paint.NET running with the bridge effect having been invoked at least once " +
-        "(Effects > Tools > MCP Bridge).")]
+        "canvas dimensions, pending op count, snapshot readiness, ConnectionStatus and RecoveryAction. " +
+        "Open Paint.NET and a canvas; the Bridge starts during plugin discovery and initializes " +
+        "the snapshot automatically. The Tools menu is a fallback for connection problems.")]
     public async Task<string> Ping(CancellationToken ct)
     {
         var result = await bridge.CallAsync("ping", null, ct);

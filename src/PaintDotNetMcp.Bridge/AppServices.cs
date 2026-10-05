@@ -150,7 +150,7 @@ internal static class AppServices
                 }
             }
         }
-        lock (_gate) _cache["mainForm"] = mf;
+        if (mf is not null) { lock (_gate) _cache["mainForm"] = mf; }
         return mf;
     }
 
@@ -166,14 +166,13 @@ internal static class AppServices
             aw = f?.GetValue(mf);
             if (aw is null) aw = GetPropertyValue(mf, "AppWorkspace");
         }
-        lock (_gate) _cache["appws"] = aw;
+        if (aw is not null) { lock (_gate) _cache["appws"] = aw; }
         return aw;
     }
 
     /// <summary>The currently active DocumentWorkspace (the tab the user is editing).</summary>
     public static object? DocumentWorkspaceService()
     {
-        if (_cache.TryGetValue("docws", out var hit)) return hit;
         object? dw = null;
         var aw = AppWorkspaceService();
         if (aw is not null)
@@ -193,7 +192,6 @@ internal static class AppServices
                 }
             }
         }
-        lock (_gate) _cache["docws"] = dw;
         return dw;
     }
 

@@ -22,6 +22,7 @@ await Run();
 [MethodImpl(MethodImplOptions.NoInlining)]
 static async Task Run()
 {
+    await CheckVersionGuard();
     var server = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.BridgeServer")!;
     var dispatch = server.GetMethod("Dispatch", BindingFlags.NonPublic | BindingFlags.Static)!;
     var prepare = server.GetMethod("PrepareRenderPass", BindingFlags.Public | BindingFlags.Static)!;
@@ -50,6 +51,14 @@ static async Task Run()
         var historyApp = new TestHistoryApp { ActiveDocumentWorkspace = historyWorkspace };
         historyCache["mainForm"] = new TestUiDispatcher();
         historyCache["appws"] = historyApp;
+        var initialized = Call("ping");
+        Check(initialized.Ok && initialized.Result!.Value.GetProperty("ConnectionStatus").GetString() == "ready", "Ping initializes without an effect render");
+        Check(historyWorkspace.History.UndoStack.Count == 0, "Snapshot initialization adds no Undo history");
+        historyApp.ActiveDocumentWorkspace = null!;
+        Check(Call("ping").Result!.Value.GetProperty("ConnectionStatus").GetString() == "no_document", "No document recovery status");
+        Check(!Call("get_canvas_png").Ok, "Closed document cannot return old snapshot");
+        historyApp.ActiveDocumentWorkspace = historyWorkspace;
+        Check(Call("ping").Result!.Value.GetProperty("SnapshotReady").GetBoolean(), "Opening a document recovers snapshot readiness");
         Check(Call("begin_batch").Ok, "Begin batch");
         Check(!Call("begin_batch").Ok, "Nested batch rejected");
         Check(!Call("undo").Ok && !Call("redo").Ok, "History changes rejected during batch");
@@ -265,6 +274,38 @@ static async Task CheckMcpProtocol()
     }
 }
 
+static async Task CheckVersionGuard()
+{
+    var original = Environment.GetEnvironmentVariable("PAINTDOTNET_MCP_PIPE_NAME");
+    Environment.SetEnvironmentVariable("PAINTDOTNET_MCP_PIPE_NAME", "PaintDotNetMcp.VersionTest." + Guid.NewGuid());
+    try
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var pipe = new System.IO.Pipes.NamedPipeServerStream(PipeNames.Current, System.IO.Pipes.PipeDirection.InOut, 1,
+            System.IO.Pipes.PipeTransmissionMode.Byte, System.IO.Pipes.PipeOptions.Asynchronous);
+        var host = Task.Run(async () =>
+        {
+            await pipe.WaitForConnectionAsync(timeout.Token);
+            using var reader = new StreamReader(pipe, leaveOpen: true);
+            using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
+            var request = JsonDocument.Parse((await reader.ReadLineAsync(timeout.Token))!);
+            if (request.RootElement.GetProperty("method").GetString() != "ping") throw new Exception("Version check must precede drawing");
+            await writer.WriteLineAsync(JsonSerializer.Serialize(new RpcResponse
+            {
+                Id = request.RootElement.GetProperty("id").GetInt32(), Ok = true,
+                Result = JsonSerializer.SerializeToElement(new PingResult { Version = "0.5.17" })
+            }));
+            if (await reader.ReadLineAsync(timeout.Token) is not null) throw new Exception("Mismatched Bridge must not receive drawing");
+        });
+        await using var client = new BridgeClient();
+        try { await client.CallAsync("fill", new FillParams { R = 255 }, timeout.Token); throw new Exception("Version mismatch was accepted"); }
+        catch (ModelContextProtocol.McpException ex) when (ex.Message.Contains("bridge_version_mismatch") && ex.Message.Contains("install.ps1")) { }
+        await host;
+        Console.WriteLine("PASS version mismatch exposes recovery instructions and blocks mutations");
+    }
+    finally { Environment.SetEnvironmentVariable("PAINTDOTNET_MCP_PIPE_NAME", original); }
+}
+
 sealed class TestUiDispatcher
 {
     public bool InvokeRequired => false;
@@ -283,6 +324,7 @@ sealed class TestHistoryApp
 
 sealed class TestHistoryWorkspace(TestHistoryLayer layer)
 {
+    public object Document { get; } = new();
     public TestHistoryLayer ActiveLayer { get; } = layer;
     public TestHistoryStacks History { get; } = new();
 }

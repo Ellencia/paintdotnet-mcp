@@ -89,7 +89,7 @@ try {
         if ($sourceHash -ne $installedHash) { throw "Installed file verification failed: $name" }
     }
     Write-Host 'Installed and verified all 5 plugin DLLs.' -ForegroundColor Green
-    Write-Host 'Open Paint.NET, open a canvas, then run Effects > Tools > MCP Bridge once.'
+    Write-Host 'Open Paint.NET and a canvas. The Bridge connects automatically; use the ping tool to check readiness.'
     Write-Host 'Reconnect your MCP client to load the updated server. You can close this PowerShell window.'
 } catch {
     Write-Error $_ -ErrorAction Continue

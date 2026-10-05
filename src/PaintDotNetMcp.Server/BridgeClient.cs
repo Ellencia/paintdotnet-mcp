@@ -1,7 +1,9 @@
 using System.IO.Pipes;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using PaintDotNetMcp.Contracts;
+using ModelContextProtocol;
 
 namespace PaintDotNetMcp.Server;
 
@@ -38,6 +40,13 @@ public sealed class BridgeClient : IAsyncDisposable
                 throw new InvalidOperationException("Bridge error: " + (resp.Error ?? "unknown"));
             return resp.Result;
         }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
+        {
+            await DisposePipeAsync();
+            // MCP intentionally hides ordinary exception messages. Explicit operational errors
+            // must use McpException so the client can see the recovery instructions.
+            throw new McpException(ex.Message, ex);
+        }
         catch
         {
             // Drop connection so the next call reconnects.
@@ -56,10 +65,39 @@ public sealed class BridgeClient : IAsyncDisposable
         await DisposePipeAsync();
 
         var pipe = new NamedPipeClientStream(".", PipeNames.Current, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await pipe.ConnectAsync(timeout: 3000, ct);
-        _pipe = pipe;
-        _reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
-        _writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
+        try
+        {
+            await pipe.ConnectAsync(timeout: 3000, ct);
+            _pipe = pipe;
+            _reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+            _writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
+            // Check the deployed plugin before sending any operation that could mutate the canvas.
+            using var handshake = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            handshake.CancelAfter(TimeSpan.FromSeconds(5));
+            int id = Interlocked.Increment(ref _nextId);
+            await _writer.WriteLineAsync(JsonSerializer.Serialize(new { id, method = "ping" }).AsMemory(), handshake.Token);
+            var line = await _reader.ReadLineAsync(handshake.Token) ?? throw new IOException("Bridge closed connection during version check. Restart Paint.NET and reconnect.");
+            var response = JsonSerializer.Deserialize<RpcResponse>(line);
+            var version = response?.Result?.Deserialize<PingResult>()?.Version;
+            if (response?.Ok != true || version != PipeNames.BridgeVersion)
+                throw new InvalidOperationException($"bridge_version_mismatch: Server expects {PipeNames.BridgeVersion}, Bridge reports {version ?? "unknown"}. Close Paint.NET, run install.ps1, reopen Paint.NET, and reconnect the MCP client.");
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            pipe.Dispose();
+            throw new IOException("bridge_not_responding: Wait for Paint.NET startup or a modal dialog/effect to finish, then retry. If this persists, restart Paint.NET and reconnect the MCP client.", ex);
+        }
+        catch (TimeoutException ex)
+        {
+            pipe.Dispose();
+            var processes = Process.GetProcessesByName("paintdotnet");
+            bool running = processes.Length > 0;
+            foreach (var process in processes) process.Dispose();
+            throw new IOException(running
+                ? "bridge_unavailable: Paint.NET is running but the Bridge did not connect. Wait for startup and retry. If this persists, run Effects > Tools > MCP Bridge. If the menu is missing, close Paint.NET, run install.ps1, and check Paint.NET plugin errors."
+                : "paintdotnet_not_running: Open Paint.NET and an image or canvas, then retry. No Tools menu invocation is normally required.", ex);
+        }
+        catch { pipe.Dispose(); throw; }
     }
 
     private Task DisposePipeAsync()

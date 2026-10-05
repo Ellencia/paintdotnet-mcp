@@ -21,7 +21,7 @@ namespace PaintDotNetMcp.Bridge;
 //   - Tries best-effort auto-commit after a queued op so the user doesn't have to keep clicking the menu.
 internal static class BridgeServer
 {
-    public const string Version = "0.5.17";
+    public const string Version = PipeNames.BridgeVersion;
 
     private static readonly object _gate = new();
     private static bool _started;
@@ -224,7 +224,15 @@ internal static class BridgeServer
             // Snapshot consumers must not race an outstanding drawing operation.
             if (req.Method is "get_canvas_png" or "save_png" or "extract_region" or
                 "remove_background" or "detect_objects" or "extract_objects" or "ocr_region")
+            {
                 WaitForIdle(5000);
+                if (AppServices.GetMainForm() is not null)
+                {
+                    var state = BuildPingResult();
+                    if (state.ConnectionStatus != "ready" || !state.SnapshotReady)
+                        throw new InvalidOperationException(state.ConnectionStatus + ": " + state.RecoveryAction);
+                }
+            }
             return req.Method switch
             {
                 "ping"               => Ok(req.Id, BuildPingResult()),
@@ -332,6 +340,16 @@ internal static class BridgeServer
         }
         // Reflection probe — tells the caller which v0.5+ features should work on this Paint.NET build.
         try { r.Probe = AppServices.Probe(); } catch { }
+        // Constructor discovery starts the pipe before any manual effect invocation.
+        // Read the live layer directly to initialize the snapshot without creating Undo history.
+        r.DocumentOpen = false;
+        r.Width = r.Height = null;
+        ConnectionState.Update(r);
+        if (r.RenderError is not null)
+        {
+            r.ConnectionStatus = "render_failed";
+            r.RecoveryAction = "Retry commit, then wait_for_idle. " + r.RenderError;
+        }
         return r;
     }
 

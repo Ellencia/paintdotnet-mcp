@@ -8,18 +8,18 @@ namespace PaintDotNetMcp.Bridge;
 // Effect plugin entry point.
 //
 // What it does:
-//   - First time the user invokes Effects > Tools > "MCP Bridge", BridgeServer starts a background
+//   - During plugin discovery, Paint.NET constructs the effect and BridgeServer starts a background
 //     Named Pipe server. The server outlives any single Effect invocation because it's a static
 //     thread tied to the Paint.NET process.
 //   - The Effect itself is a no-op render: it copies source to destination unchanged. We use it
-//     as a "start the server" trigger and as a way for the MCP server to request pixel mutations
+//     as a manual recovery trigger and as a way for the MCP server to request pixel mutations
 //     on the active layer (queued and applied on the next render pass).
 //
 // Limitations (be honest):
 //   - Direct document/layer manipulation outside of an Effect render pass is NOT part of the public
 //     Paint.NET API. We can only safely mutate pixels through the Effect surface during render.
 //   - A "fill" or "draw_rect" command from MCP is queued; it applies on the next render, i.e. when
-//     the user invokes the effect.
+//     the automatic UI dispatcher or user invokes the effect.
 
 public sealed class PluginSupportInfo : IPluginSupportInfo
 {
