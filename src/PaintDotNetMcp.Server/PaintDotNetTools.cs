@@ -549,9 +549,9 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     // ---- v0.6 Selection -----------------------------------------------------
 
     [McpServerTool, Description(
-        "Set a rectangular selection. All drawing ops will be clipped to this region. " +
-        "Tries to set Paint.NET's native selection via reflection; falls back to a software-side " +
-        "selection that the bridge enforces internally (Paint.NET UI won't show it in that case).")]
+        "Replace the native selection with a rectangle visible as Paint.NET's selection outline. " +
+        "Does not change image pixels. Drawing is clipped to the selection. Supports Undo/Redo. " +
+        "Finish pending drawing or an active batch first. Returns native bounds and visibility.")]
     public async Task<string> SetSelectionRect(int x, int y, int width, int height, CancellationToken ct = default)
     {
         var p = new SetSelectionRectParams { X = x, Y = y, Width = width, Height = height };
@@ -560,8 +560,9 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     }
 
     [McpServerTool, Description(
-        "Set a polygon selection. JSON array of {\"x\":int,\"y\":int}. Software-side only " +
-        "(Paint.NET native polygon selection via reflection is unreliable).")]
+        "Replace the native selection with a polygon visible as Paint.NET's selection outline. " +
+        "JSON array of {\"x\":int,\"y\":int}. Does not change image pixels. Supports Undo/Redo " +
+        "and manual adjustment in Paint.NET. Finish pending drawing or an active batch first.")]
     public async Task<string> SetSelectionPolygon(
         [Description("JSON array of points, e.g. [{\"x\":10,\"y\":10},{\"x\":50,\"y\":10},{\"x\":30,\"y\":40}]")]
         string pointsJson,
@@ -577,12 +578,17 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     }
 
     [McpServerTool, Description(
-        "Clear any active selection (both native and software-side).")]
+        "Clear native selection and any legacy software mask. Supports Undo/Redo; clearing " +
+        "an already empty selection adds no history. Finish pending drawing or an active batch first.")]
     public async Task<string> ClearSelection(CancellationToken ct = default)
     {
         var res = await bridge.CallAsync("clear_selection", null, ct);
         return res?.ToString() ?? "{}";
     }
+
+    [McpServerTool, Description("Read current native selection bounds and visibility, including manual UI adjustments. IsEmpty means no selection and drawing uses the entire canvas. Does not change pixels or history.")]
+    public async Task<string> GetSelection(CancellationToken ct = default)
+        => (await bridge.CallAsync("get_selection", null, ct))?.ToString() ?? "{}";
 
     // ---- v0.6 OCR -----------------------------------------------------------
 

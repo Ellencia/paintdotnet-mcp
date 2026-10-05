@@ -273,6 +273,7 @@ internal static class BridgeServer
                 "set_selection_rect"    => HandleSetSelectionRect(req),
                 "set_selection_polygon" => HandleSetSelectionPolygon(req),
                 "clear_selection"       => HandleClearSelection(req),
+                "get_selection"         => Ok(req.Id, NativeSelection.Get()),
                 "ocr_region"            => HandleOcrRegion(req),
                 "diagnose_services"     => HandleDiagnoseServices(req),
                 _ => Err(req.Id, "unknown method: " + req.Method),
@@ -747,8 +748,7 @@ internal static class BridgeServer
     private static RpcResponse HandleSetSelectionRect(RpcRequest req)
     {
         var p = req.Params?.Deserialize<SetSelectionRectParams>() ?? throw new InvalidOperationException("missing params");
-        var r = SelectionOps.SetRectangle(p.X, p.Y, p.Width, p.Height);
-        return Ok(req.Id, new SelectionResult { Ok = r.Ok, Note = r.Note });
+        return Ok(req.Id, NativeSelection.Rectangle(p.X, p.Y, p.Width, p.Height));
     }
 
     private static RpcResponse HandleSetSelectionPolygon(RpcRequest req)
@@ -756,14 +756,12 @@ internal static class BridgeServer
         var p = req.Params?.Deserialize<SetSelectionPolygonParams>() ?? throw new InvalidOperationException("missing params");
         var pts = new List<System.Drawing.Point>(p.Points.Count);
         foreach (var pt in p.Points) pts.Add(new System.Drawing.Point(pt.X, pt.Y));
-        var r = SelectionOps.SetPolygon(pts);
-        return Ok(req.Id, new SelectionResult { Ok = r.Ok, Note = r.Note });
+        return Ok(req.Id, NativeSelection.Polygon(pts));
     }
 
     private static RpcResponse HandleClearSelection(RpcRequest req)
     {
-        var r = SelectionOps.Clear();
-        return Ok(req.Id, new SelectionResult { Ok = r.Ok, Note = r.Note });
+        return Ok(req.Id, NativeSelection.Clear());
     }
 
     private static RpcResponse HandleOcrRegion(RpcRequest req)
