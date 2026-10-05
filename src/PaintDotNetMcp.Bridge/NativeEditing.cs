@@ -105,7 +105,7 @@ internal static class NativeEditing
         return new { Ok = true, Width = (int)Property(document, "Width"), Height = (int)Property(document, "Height"), HistorySteps = 1 };
     });
 
-    private static object Run(Func<object, object> edit)
+    internal static object Run(Func<object, object> edit)
     {
         if (HistoryOps.BatchActive) throw new InvalidOperationException("Finish the active batch with end_batch before editing layers or canvas size.");
         AutoCommit.WaitForExecutionIdle(5000);
@@ -125,19 +125,29 @@ internal static class NativeEditing
         return result!;
     }
 
-    private static object Property(object instance, string name) => AppServices.GetPropertyValue(instance, name)
+    internal static object Property(object instance, string name) => AppServices.GetPropertyValue(instance, name)
         ?? throw new InvalidOperationException("Native " + name + " unavailable.");
 
-    private static object Memento(string type, string? name, object workspace, params object[] extra)
+    internal static object Memento(string type, string? name, object workspace, params object[] extra)
     {
         var args = new object?[] { name, null, workspace }.Concat(extra).ToArray();
         return AppServices.FindType("PaintDotNet.HistoryMementos." + type)!.GetConstructors()
             .Single(c => c.GetParameters().Length == args.Length).Invoke(args);
     }
 
-    private static void Push(object workspace, object history)
+    internal static void Push(object workspace, object history)
     {
         var stack = Property(workspace, "History");
         stack.GetType().GetMethods(Instance).Single(m => m.Name == "PushNewMemento" && m.GetParameters().Length == 1).Invoke(stack, [history]);
+    }
+
+    internal static object Compound(string name, params object[] mementos)
+    {
+        var type = AppServices.FindType("PaintDotNet.HistoryMementos.HistoryMemento")!;
+        var children = Array.CreateInstance(type, mementos.Length);
+        for (int i = 0; i < mementos.Length; i++) children.SetValue(mementos[i], i);
+        return AppServices.FindType("PaintDotNet.HistoryMementos.CompoundHistoryMemento")!.GetConstructors()
+            .Single(c => c.GetParameters().Length == 3 && c.GetParameters()[2].ParameterType.IsArray)
+            .Invoke([name, null, children]);
     }
 }

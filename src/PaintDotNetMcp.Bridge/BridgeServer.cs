@@ -225,6 +225,8 @@ internal static class BridgeServer
             if (req.Method is "get_canvas_png" or "save_png" or "extract_region" or
                 "remove_background" or "detect_objects" or "extract_objects" or "ocr_region")
             {
+                if (HistoryOps.BatchActive && req.Method is "get_canvas_png" or "save_png")
+                    throw new InvalidOperationException("Finish the active batch with end_batch before reading or exporting images.");
                 WaitForIdle(5000);
                 if (AppServices.GetMainForm() is not null)
                 {
@@ -247,6 +249,10 @@ internal static class BridgeServer
                 "draw_ellipse"       => QueueOp<DrawEllipseParams>(req, p => new DrawEllipseOp(p)),
                 "draw_polygon"       => QueueOp<DrawPolygonParams>(req, p => new DrawPolygonOp(p)),
                 "draw_text"          => QueueOp<DrawTextParams>(req, p => new DrawTextOp(p)),
+                "create_text_layer"  => Ok(req.Id, TextLayers.Create(req.Params?.Deserialize<CreateTextLayerParams>() ?? new())),
+                "update_text_layer"  => Ok(req.Id, TextLayers.Update(req.Params?.Deserialize<UpdateTextLayerParams>() ?? new())),
+                "get_text_layer"     => Ok(req.Id, TextLayers.Get(req.Params?.Deserialize<TextLayerIndexParams>() ?? new())),
+                "list_text_layers"   => Ok(req.Id, TextLayers.List()),
                 "flood_fill"         => QueueOp<FloodFillParams>(req, p => new FloodFillOp(p)),
                 "gradient_fill"      => QueueOp<GradientFillParams>(req, p => new GradientFillOp(p)),
                 "paste_image"        => QueueOp<PasteImageParams>(req, p => new PasteImageOp(p)),
@@ -363,18 +369,16 @@ internal static class BridgeServer
     private static RpcResponse HandleGetCanvasPng(RpcRequest req)
     {
         var p = req.Params?.Deserialize<GetCanvasPngParams>() ?? new GetCanvasPngParams();
-        var buf = ImageIO.GetSnapshotCopy(out int w, out int h);
-        if (buf is null) return Err(req.Id, "no snapshot yet — invoke Effects > Tools > MCP Bridge once");
-
-        int x = p.X ?? 0, y = p.Y ?? 0;
-        int rw = p.Width ?? w, rh = p.Height ?? h;
+        var buf = ImageIO.ReadImageSource(p.Source, out int w, out int h);
+        var crop = ImageIO.ImageCrop(w, h, p.X, p.Y, p.Width, p.Height);
         var fmt = ImageIO.ResolveFormat(p.Format, null);
-        var bytes = ImageIO.EncodeImage(buf, w, h, x, y, rw, rh, fmt, p.Quality);
+        var bytes = ImageIO.EncodeImage(buf, w, h, crop.X, crop.Y, crop.Width, crop.Height, fmt, p.Quality);
         return Ok(req.Id, new GetCanvasPngResult
         {
+            Source = p.Source,
             ImageBase64 = Convert.ToBase64String(bytes),
-            Width = Math.Min(rw, w - x),
-            Height = Math.Min(rh, h - y),
+            Width = crop.Width,
+            Height = crop.Height,
             MaybeStale = false,
             Format = fmt.ToString().ToLowerInvariant(),
             MimeType = ImageIO.MimeFor(fmt),
@@ -386,21 +390,20 @@ internal static class BridgeServer
     {
         var p = req.Params?.Deserialize<SavePngParams>() ?? throw new InvalidOperationException("missing params");
         if (string.IsNullOrWhiteSpace(p.Path)) return Err(req.Id, "path required");
-        var buf = ImageIO.GetSnapshotCopy(out int w, out int h);
-        if (buf is null) return Err(req.Id, "no snapshot yet — invoke Effects > Tools > MCP Bridge once");
-
-        int x = p.X ?? 0, y = p.Y ?? 0;
-        int rw = p.Width ?? w, rh = p.Height ?? h;
+        if (!Path.IsPathFullyQualified(p.Path)) return Err(req.Id, "An absolute export path is required.");
+        var buf = ImageIO.ReadImageSource(p.Source, out int w, out int h);
+        var crop = ImageIO.ImageCrop(w, h, p.X, p.Y, p.Width, p.Height);
         var fmt = ImageIO.ResolveFormat(p.Format, p.Path);
-        var bytes = ImageIO.EncodeImage(buf, w, h, x, y, rw, rh, fmt, p.Quality);
+        var bytes = ImageIO.EncodeImage(buf, w, h, crop.X, crop.Y, crop.Width, crop.Height, fmt, p.Quality);
         var dir = Path.GetDirectoryName(p.Path);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         File.WriteAllBytes(p.Path, bytes);
         return Ok(req.Id, new SavePngResult
         {
+            Source = p.Source,
             Path = p.Path,
-            Width = Math.Min(rw, w - x),
-            Height = Math.Min(rh, h - y),
+            Width = crop.Width,
+            Height = crop.Height,
             Bytes = bytes.LongLength,
             Format = fmt.ToString().ToLowerInvariant(),
             MimeType = ImageIO.MimeFor(fmt),

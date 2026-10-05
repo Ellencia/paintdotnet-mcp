@@ -24,6 +24,7 @@ static async Task Run()
 {
     await CheckVersionGuard();
     CheckLayerTransforms();
+    CheckComposite();
     var server = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.BridgeServer")!;
     var dispatch = server.GetMethod("Dispatch", BindingFlags.NonPublic | BindingFlags.Static)!;
     var prepare = server.GetMethod("PrepareRenderPass", BindingFlags.Public | BindingFlags.Static)!;
@@ -54,6 +55,16 @@ static async Task Run()
     Check(!Call("draw_text", new DrawTextParams { Text = "Test", FontFamily = "MCP Nonexistent Font 5723" }).Ok, "Missing font rejected instead of silently substituting");
     Check((int)server.GetProperty("PendingCount")!.GetValue(null)! == 0, "Invalid editing inputs leave no pending operations");
     Console.WriteLine("PASS canvas editing and text validation reject invalid input without pending mutations");
+    Check(!Call("create_text_layer", new CreateTextLayerParams { Text = new() { Text = " " } }).Ok, "Invalid managed text rejected");
+    Check(!Call("create_text_layer", new CreateTextLayerParams { Name = " ", Text = new() { Text = "Test" } }).Ok, "Invalid text layer name rejected");
+    Check(!Call("update_text_layer", new UpdateTextLayerParams { LayerIndex = -2 }).Ok, "Invalid text layer index rejected");
+    Console.WriteLine("PASS editable text input validation");
+    var cropMethod = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.ImageIO")!.GetMethod("ImageCrop")!;
+    var clippedCrop = (Rectangle)cropMethod.Invoke(null, [640, 320, -10, -20, 50, 60])!;
+    Check(clippedCrop == new Rectangle(0, 0, 40, 40), "Negative crop coordinates report actual clipped dimensions");
+    var overflowCrop = (Rectangle)cropMethod.Invoke(null, [640, 320, 600, 300, int.MaxValue, int.MaxValue])!;
+    Check(overflowCrop == new Rectangle(600, 300, 40, 20), "Crop intersection does not overflow");
+    Console.WriteLine("PASS preview/export crop clipping and overflow-safe dimensions");
     Check(!Call("transform_layer", new TransformLayerParams { ScaleX = 0 }).Ok, "Invalid transform is not queued");
     Check(!Call("transform_layer", new TransformLayerParams { Interpolation = "invalid" }).Ok, "Invalid interpolation is not queued");
     object Prepare(Surface source, Rectangle[]? scans = null) =>
@@ -86,6 +97,7 @@ static async Task Run()
         Check(!Call("new_canvas").Ok && !Call("open_image").Ok, "Document changes rejected during batch");
         Check(!Call("set_selection_rect", new SetSelectionRectParams { Width = 5, Height = 5 }).Ok && !Call("clear_selection").Ok, "Selection changes rejected during batch");
         Check(!Call("copy_selection_to_layer").Ok && !Call("crop_to_selection").Ok && !Call("resize_canvas", new ResizeCanvasParams { Width = 20, Height = 20 }).Ok, "Layer and canvas edits rejected during batch");
+        Check(!Call("create_text_layer", new CreateTextLayerParams { Text = new() { Text = "Test" } }).Ok && !Call("update_text_layer").Ok, "Text layer edits rejected during batch");
         Check(!Call("undo").Ok && !Call("redo").Ok, "History changes rejected during batch");
         Check(!Call("commit").Ok && !Call("set_auto_commit", new SetAutoCommitParams { Enabled = true }).Ok, "Batch cannot be split by commit or auto-commit");
         historyApp.ActiveDocumentWorkspace = new TestHistoryWorkspace(new TestHistoryLayer(historySurface));
@@ -283,7 +295,7 @@ static async Task CheckMcpProtocol()
         await Request(1, "initialize", new { protocolVersion = "2024-11-05", capabilities = new { }, clientInfo = new { name = "regression", version = "1" } });
         await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
         var list = await Request(2, "tools/list", new { });
-        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo", "new_canvas", "open_image", "transform_layer", "get_selection", "copy_selection_to_layer", "resize_canvas", "crop_to_selection", "draw_text" })
+        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo", "new_canvas", "open_image", "transform_layer", "get_selection", "copy_selection_to_layer", "resize_canvas", "crop_to_selection", "draw_text", "create_text_layer", "update_text_layer", "get_text_layer", "list_text_layers", "get_document_image", "export_document" })
             if (!list.GetProperty("tools").EnumerateArray().Any(tool => tool.GetProperty("name").GetString() == required))
                 throw new Exception(required + " missing from MCP tools/list");
         var called = await Request(3, "tools/call", new { name = "wait_for_idle", arguments = new { timeoutMs = 0 } });
@@ -298,6 +310,44 @@ static async Task CheckMcpProtocol()
         if (!process.HasExited) process.Kill(entireProcessTree: true);
         await process.WaitForExitAsync();
     }
+}
+
+static void CheckComposite()
+{
+    var imageIO = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.ImageIO")!;
+    var services = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.AppServices")!;
+    var cache = (Dictionary<string, object?>)services.GetField("_cache", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+    using var document = new Document(8, 6);
+    var bottom = new BitmapLayer(8, 6);
+    bottom.Surface.Fill(ColorBgra.FromBgra(0, 0, 255, 255));
+    var top = new BitmapLayer(8, 6);
+    top.Surface.Fill(ColorBgra.FromBgra(255, 0, 0, 128));
+    top.Opacity = 128;
+    document.Layers.Add(bottom); document.Layers.Add(top);
+    cache["mainForm"] = new TestUiDispatcher();
+    cache["appws"] = new TestCompositeApp { ActiveDocumentWorkspace = new TestCompositeWorkspace(document, top) };
+    byte[] Capture()
+    {
+        object?[] args = ["composite", 0, 0];
+        var pixels = (byte[])imageIO.GetMethod("ReadImageSource")!.Invoke(null, args)!;
+        if ((int)args[1]! != 8 || (int)args[2]! != 6) throw new Exception("Composite dimensions");
+        return pixels;
+    }
+    try
+    {
+        var pixels = Capture();
+        if (Math.Abs(pixels[0] - 64) > 1 || pixels[1] != 0 || Math.Abs(pixels[2] - 191) > 1 || pixels[3] != 255)
+            throw new Exception("Native composition must combine source alpha with layer opacity");
+        top.Visible = false; pixels = Capture();
+        if (pixels[0] != 0 || pixels[2] != 255 || pixels[3] != 255) throw new Exception("Hidden layer must be excluded");
+        top.Visible = true; top.BlendMode = LayerBlendMode.Multiply; pixels = Capture();
+        if (pixels[0] != 0 || Math.Abs(pixels[2] - 191) > 1) throw new Exception("Native Multiply blend mode must be used");
+        bottom.Visible = false; top.Visible = false; pixels = Capture();
+        if (pixels.Where((_, i) => i % 4 == 3).Any(a => a != 0)) throw new Exception("Hidden document must export transparency");
+        if (document.Layers.Count != 2 || document.Width != 8 || document.Height != 6) throw new Exception("Preview must preserve document layers and size");
+        Console.WriteLine("PASS native composition respects alpha, opacity, visibility, Multiply blend mode and source layers");
+    }
+    finally { cache.Clear(); }
 }
 
 static void CheckLayerTransforms()
@@ -371,6 +421,17 @@ sealed class TestUiDispatcher
         Callbacks.Add(callback);
         return new object();
     }
+}
+
+sealed class TestCompositeApp
+{
+    public TestCompositeWorkspace ActiveDocumentWorkspace { get; set; } = null!;
+}
+
+sealed class TestCompositeWorkspace(Document document, BitmapLayer layer)
+{
+    public Document Document { get; } = document;
+    public BitmapLayer ActiveLayer { get; } = layer;
 }
 
 sealed class TestHistoryApp

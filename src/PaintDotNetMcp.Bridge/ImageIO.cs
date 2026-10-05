@@ -40,6 +40,17 @@ internal static class ImageIO
     /// <summary>Snapshot the entire surface into the managed buffer (called from OnRender).</summary>
     public static void CaptureSnapshot(Surface s)
     {
+        var buf = ReadSurface(s);
+        lock (_snapGate)
+        {
+            _snapBgra = buf;
+            _snapW = s.Width; _snapH = s.Height;
+            _snapTick = Environment.TickCount64;
+        }
+    }
+
+    public static byte[] ReadSurface(Surface s)
+    {
         int w = s.Width, h = s.Height;
         var buf = new byte[w * h * 4];
         int i = 0;
@@ -54,12 +65,40 @@ internal static class ImageIO
                 buf[i++] = c.A;
             }
         }
-        lock (_snapGate)
+        return buf;
+    }
+
+    public static byte[] ReadImageSource(string source, out int w, out int h)
+    {
+        if (source == "active_layer") return GetSnapshotCopy(out w, out h)
+            ?? throw new InvalidOperationException("No active-layer snapshot; open a canvas and retry ping.");
+        if (source != "composite") throw new ArgumentException("Source must be active_layer or composite.");
+        byte[]? pixels = null;
+        int width = 0, height = 0;
+        if (!AppServices.InvokeOnUiThread(() =>
         {
-            _snapBgra = buf;
-            _snapW = w; _snapH = h;
-            _snapTick = Environment.TickCount64;
-        }
+            var workspace = AppServices.DocumentWorkspaceService() ?? throw new InvalidOperationException("Open a canvas first.");
+            var document = AppServices.GetPropertyValue(workspace, "Document") as Document
+                ?? throw new InvalidOperationException("No active document.");
+            using var flattened = new Surface(document.Width, document.Height);
+            document.Flatten(flattened);
+            pixels = ReadSurface(flattened);
+            width = document.Width; height = document.Height;
+        }, out var note)) throw new InvalidOperationException(note);
+        w = width; h = height;
+        return pixels!;
+    }
+
+    public static Rectangle ImageCrop(int w, int h, int? x, int? y, int? width, int? height)
+    {
+        int requestedX = x ?? 0, requestedY = y ?? 0;
+        int requestedWidth = width ?? w, requestedHeight = height ?? h;
+        if (requestedWidth <= 0 || requestedHeight <= 0) throw new ArgumentException("Crop width and height must be positive.");
+        int left = Math.Clamp(requestedX, 0, w), top = Math.Clamp(requestedY, 0, h);
+        int right = (int)Math.Clamp((long)requestedX + requestedWidth, 0, w);
+        int bottom = (int)Math.Clamp((long)requestedY + requestedHeight, 0, h);
+        if (right <= left || bottom <= top) throw new ArgumentException("Crop must intersect the canvas.");
+        return Rectangle.FromLTRB(left, top, right, bottom);
     }
 
     public static byte[]? GetSnapshotCopy(out int w, out int h)

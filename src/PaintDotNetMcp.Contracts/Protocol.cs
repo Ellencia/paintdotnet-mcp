@@ -17,7 +17,7 @@ namespace PaintDotNetMcp.Contracts;
 
 public static class PipeNames
 {
-    public const string BridgeVersion = "0.5.22";
+    public const string BridgeVersion = "0.5.23";
     public const string Default = "PaintDotNetMcp.Bridge.v1";
     // Allow regression processes to use an isolated pipe without touching a live canvas.
     public static string Current => Environment.GetEnvironmentVariable("PAINTDOTNET_MCP_PIPE_NAME") ?? Default;
@@ -200,6 +200,46 @@ public sealed class DrawTextParams
     public bool AntiAlias { get; set; } = true;
 }
 
+public sealed class CreateTextLayerParams
+{
+    public string Name { get; set; } = "Text";
+    public DrawTextParams Text { get; set; } = new();
+}
+
+public sealed class TextLayerIndexParams
+{
+    public int LayerIndex { get; set; } = -1;
+}
+
+public sealed class UpdateTextLayerParams
+{
+    public int LayerIndex { get; set; } = -1;
+    public string? Text { get; set; }
+    public string? Name { get; set; }
+    public int? X { get; set; }
+    public int? Y { get; set; }
+    public string? FontFamily { get; set; }
+    public float? FontSize { get; set; }
+    public bool? Bold { get; set; }
+    public bool? Italic { get; set; }
+    public bool? AntiAlias { get; set; }
+    public byte? R { get; set; }
+    public byte? G { get; set; }
+    public byte? B { get; set; }
+    public byte? A { get; set; }
+    public bool ReplaceModifiedPixels { get; set; }
+}
+
+public sealed class TextLayerResult
+{
+    public int LayerIndex { get; set; }
+    public string Name { get; set; } = "";
+    public string Id { get; set; } = "";
+    public DrawTextParams Text { get; set; } = new();
+    public bool PixelsModified { get; set; }
+    public int HistorySteps { get; set; }
+}
+
 public sealed class FloodFillParams
 {
     public int X { get; set; }
@@ -253,6 +293,7 @@ public sealed class PasteImageParams
 
 public sealed class GetCanvasPngParams
 {
+    public string Source { get; set; } = "active_layer";
     /// <summary>Optional crop. Omit to get full canvas.</summary>
     public int? X { get; set; }
     public int? Y { get; set; }
@@ -268,6 +309,7 @@ public sealed class GetCanvasPngParams
 
 public sealed class GetCanvasPngResult
 {
+    public string Source { get; set; } = "active_layer";
     /// <summary>Base64-encoded image in the requested format.</summary>
     public string ImageBase64 { get; set; } = "";
     public int Width { get; set; }
@@ -282,6 +324,7 @@ public sealed class GetCanvasPngResult
 
 public sealed class SavePngParams
 {
+    public string Source { get; set; } = "active_layer";
     /// <summary>Absolute path on the host filesystem. Extension drives auto-format.</summary>
     public string Path { get; set; } = "";
     /// <summary>Optional crop (defaults to full canvas).</summary>
@@ -297,6 +340,7 @@ public sealed class SavePngParams
 
 public sealed class SavePngResult
 {
+    public string Source { get; set; } = "active_layer";
     public string Path { get; set; } = "";
     public int Width { get; set; }
     public int Height { get; set; }

@@ -8,6 +8,7 @@
     <ProjectReference Include="../../src/PaintDotNetMcp.Server/PaintDotNetMcp.Server.csproj" />
     <Reference Include="PaintDotNet.Base" HintPath="$(PaintDotNetDir)/PaintDotNet.Base.dll" />
     <Reference Include="PaintDotNet.Core" HintPath="$(PaintDotNetDir)/PaintDotNet.Core.dll" />
+    <Reference Include="PaintDotNet.Data" HintPath="$(PaintDotNetDir)/PaintDotNet.Data.dll" />
     <Reference Include="PaintDotNet.ComponentModel" HintPath="$(PaintDotNetDir)/PaintDotNet.ComponentModel.dll" />
     <Reference Include="PaintDotNet.Primitives" HintPath="$(PaintDotNetDir)/PaintDotNet.Primitives.dll" />
     <Reference Include="PaintDotNet.Effects" HintPath="$(PaintDotNetDir)/PaintDotNet.Effects.dll" />

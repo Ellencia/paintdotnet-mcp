@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using ModelContextProtocol.Server;
+using ModelContextProtocol.Protocol;
 using PaintDotNetMcp.Contracts;
 
 namespace PaintDotNetMcp.Server;
@@ -8,6 +9,71 @@ namespace PaintDotNetMcp.Server;
 [McpServerToolType]
 public sealed class PaintDotNetTools(BridgeClient bridge)
 {
+    [McpServerTool, Description("Create an MCP-editable text layer above the active layer. Stores text/font/position/color in native layer metadata, including in saved .pdn files. Renders the whole text layer without selection clipping. One native Undo step; finish pending drawing or a batch first. Edit it later with update_text_layer; Paint.NET sees a bitmap layer, not a native text object.")]
+    public async Task<string> CreateTextLayer(string text, int x = 0, int y = 0, string name = "Text",
+        string fontFamily = "Segoe UI", float fontSize = 16, bool bold = false, bool italic = false,
+        byte r = 0, byte g = 0, byte b = 0, byte a = 255, bool antiAlias = true, CancellationToken ct = default)
+    {
+        var result = await bridge.CallAsync("create_text_layer", new CreateTextLayerParams
+        {
+            Name = name, Text = new DrawTextParams { Text = text, X = x, Y = y, FontFamily = fontFamily,
+                FontSize = fontSize, Bold = bold, Italic = italic, R = r, G = g, B = b, A = a, AntiAlias = antiAlias }
+        }, ct);
+        return result?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description("Update saved text layer properties and regenerate its pixels from text. Omitted properties are preserved; layerIndex=-1 means active layer. One native Undo step (zero for identical settings), preserving layer visibility, opacity and blend mode. If pixels or canvas size changed, rejects replacement unless replaceModifiedPixels=true explicitly permits regenerating the entire layer. Prefer x/y/fontSize edits here to moving/scaling rasterized text with transform_layer.")]
+    public async Task<string> UpdateTextLayer(int layerIndex = -1, string? text = null, int? x = null, int? y = null,
+        string? name = null, string? fontFamily = null, float? fontSize = null, bool? bold = null,
+        bool? italic = null, byte? r = null, byte? g = null, byte? b = null, byte? a = null,
+        bool? antiAlias = null, bool replaceModifiedPixels = false, CancellationToken ct = default)
+    {
+        var result = await bridge.CallAsync("update_text_layer", new UpdateTextLayerParams
+        {
+            LayerIndex = layerIndex, Text = text, X = x, Y = y, Name = name, FontFamily = fontFamily,
+            FontSize = fontSize, Bold = bold, Italic = italic, R = r, G = g, B = b, A = a,
+            AntiAlias = antiAlias, ReplaceModifiedPixels = replaceModifiedPixels
+        }, ct);
+        return result?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description("Read an MCP text layer's stored text, font, position, color and PixelsModified status. layerIndex=-1 means active layer. Other bitmap layers have no editable text definition.")]
+    public async Task<string> GetTextLayer(int layerIndex = -1, CancellationToken ct = default)
+    {
+        var result = await bridge.CallAsync("get_text_layer", new TextLayerIndexParams { LayerIndex = layerIndex }, ct);
+        return result?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description("List all MCP-editable text layers in the active document, including stored properties and whether pixels changed after rendering. No Undo history is added.")]
+    public async Task<string> ListTextLayers(CancellationToken ct = default)
+    {
+        var result = await bridge.CallAsync("list_text_layers", null, ct);
+        return result?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description("Preview the full document as an MCP image content block. Uses Paint.NET's native composition of visible layers, including opacity and blend modes. Optional crop; formats png, webp or jpeg. Leaves source layers and selection intact and adds no Undo history. Finish a drawing batch first. Uncommitted interactive tool overlays are not included.")]
+    public async Task<CallToolResult> GetDocumentImage(int? x = null, int? y = null, int? width = null, int? height = null,
+        string format = "png", int quality = 85, CancellationToken ct = default)
+    {
+        var result = await bridge.CallAsync("get_canvas_png", new GetCanvasPngParams
+            { Source = "composite", X = x, Y = y, Width = width, Height = height, Format = format, Quality = quality }, ct);
+        var value = result!.Value.Deserialize<GetCanvasPngResult>()!;
+        string data = value.ImageBase64;
+        value.ImageBase64 = "";
+        return new CallToolResult { Content = [
+            new TextContentBlock { Text = JsonSerializer.Serialize(value) },
+            new ImageContentBlock { Data = data, MimeType = value.MimeType }
+        ] };
+    }
+
+    [McpServerTool, Description("Export the full document's visible-layer composition to an absolute file path, without flattening or changing the source document. Uses native layer opacity and blend modes. PNG preserves transparency; WebP/JPEG quality applies to lossy encoding. Optional crop. Finish pending drawing or a batch first.")]
+    public async Task<string> ExportDocument(string path, int? x = null, int? y = null, int? width = null, int? height = null,
+        string format = "auto", int quality = 85, CancellationToken ct = default)
+    {
+        var result = await bridge.CallAsync("save_png", new SavePngParams
+            { Source = "composite", Path = path, X = x, Y = y, Width = width, Height = height, Format = format, Quality = quality }, ct);
+        return result?.ToString() ?? "{}";
+    }
     [McpServerTool, Description("Copy the active layer's selected pixels into a new transparent layer directly above it, preserving canvas coordinates and source pixels. Requires a native selection. Uses pixel coverage scans, without feathering. Selects the new layer; one native Undo step. Clear selection before moving the whole new layer with transform_layer. Finish pending drawing or an active batch first.")]
     public async Task<string> CopySelectionToLayer(string name = "Selection", CancellationToken ct = default)
     {
@@ -326,9 +392,8 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     }
 
     [McpServerTool, Description(
-        "Get the current canvas as an encoded image (base64). Optional crop. Reads from the bridge's " +
-        "last-rendered snapshot — invoke Effects > Tools > MCP Bridge once to seed it. If maybe_stale=true " +
-        "in the result, queued ops haven't been committed yet. " +
+        "Get the active bitmap layer as an encoded image (base64), with optional crop. Waits for pending drawing and reads a fresh layer snapshot. " +
+        "Use get_document_image for the visible-layer composition. " +
         "Format options: 'png' (default), 'webp', 'jpeg'. Quality 1-100 applies to lossy formats.")]
     public async Task<string> GetCanvasPng(
         int? x = null, int? y = null, int? width = null, int? height = null,
@@ -346,9 +411,9 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     }
 
     [McpServerTool, Description(
-        "Save the current canvas (or a region) as an image file on the host filesystem. Path must be " +
+        "Save the active bitmap layer (or a region) as an image file on the host filesystem. Path must be " +
         "absolute. Format auto-detected from file extension (.png, .webp, .jpg/.jpeg) or specified " +
-        "explicitly. Uses the bridge's last-rendered snapshot.")]
+        "explicitly. Waits for pending drawing and reads a fresh layer snapshot. Use export_document for all visible layers.")]
     public async Task<string> SavePng(
         [Description("Absolute path on host. Extension drives format if format='auto'.")] string path,
         int? x = null, int? y = null, int? width = null, int? height = null,
