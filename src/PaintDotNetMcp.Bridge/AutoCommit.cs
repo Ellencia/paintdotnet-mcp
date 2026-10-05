@@ -12,6 +12,20 @@ internal static class AutoCommit
     public static bool Enabled = true;
     public static bool Available => AppServices.GetMainForm() is not null;
 
+    public static void WaitForExecutionIdle(int timeoutMs)
+    {
+        long deadline = Environment.TickCount64 + timeoutMs;
+        lock (Gate)
+        {
+            while (_scheduled)
+            {
+                long remaining = deadline - Environment.TickCount64;
+                if (remaining <= 0) throw new TimeoutException("Paint.NET effect execution is still active; retry after it finishes.");
+                Monitor.Wait(Gate, (int)remaining);
+            }
+        }
+    }
+
     public static bool TryTrigger(object? effect, out string note)
     {
         if (!Enabled)
@@ -31,6 +45,7 @@ internal static class AutoCommit
             if (!AppServices.PostOnUiThread(RunRequested, out note))
             {
                 _scheduled = false;
+                Monitor.PulseAll(Gate);
                 return false;
             }
         }
@@ -50,6 +65,7 @@ internal static class AutoCommit
                 {
                     if (_requested && BridgeServer.PendingCount > 0) continue;
                     _scheduled = false;
+                    Monitor.PulseAll(Gate);
                     return;
                 }
             }
@@ -57,11 +73,15 @@ internal static class AutoCommit
         catch (Exception ex)
         {
             BridgeServer.RecordTriggerError(AppServices.Unwrap(ex));
-            lock (Gate) _scheduled = false;
+            lock (Gate)
+            {
+                _scheduled = false;
+                Monitor.PulseAll(Gate);
+            }
         }
     }
 
-    private static void RunBridgeEffect()
+    internal static void RunBridgeEffect()
     {
         const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
         var collectionType = AppServices.FindType("PaintDotNet.Effects.EffectsCollection")

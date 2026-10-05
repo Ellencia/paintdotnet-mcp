@@ -97,16 +97,19 @@ Claude Desktop에서는 `%APPDATA%\Claude\claude_desktop_config.json`에 설정�
 여러 작업을 한 번에 적용하려면 다음 순서를 사용합니다.
 
 ```text
-set_auto_commit(enabled=false)
+begin_batch()
 fill(r=230, g=40, b=15)
 draw_rectangle(x=100, y=100, width=100, height=100, r=10, g=100, b=240, fill=true)
-commit()
+end_batch()
 wait_for_idle(timeoutMs=5000)
 save_png(path="C:\out\canvas.png")
-set_auto_commit(enabled=true)
 ```
 
 위 예시는 도구 호출 순서를 나타냅니다. PowerShell 명령이 아닙니다. 좌표와 크기는 픽셀 단위이며 그리기는 활성 레이어에 적용됩니다.
+
+`begin_batch`는 현재 문서와 레이어에 작업 묶음을 시작하고 자동 실행을 잠시 끕니다. `end_batch`는 그리기를 한 번에 실행하고 Paint.NET의 Undo 한 단계로 기록된 것을 확인한 뒤 이전 자동 실행 설정을 복원합니다. 빈 배치는 이력을 만들지 않습니다. 배치 도중에는 탭·레이어·선택 영역을 바꾸거나 수동 편집을 하지 마세요. 실행 실패나 취소 시 배치는 유지되어 `end_batch`로 재시도할 수 있습니다.
+
+`undo`와 `redo`는 활성 문서의 Paint.NET 이력을 한 단계씩 이동합니다. 수동 편집 이력도 대상입니다. 이후 활성 레이어의 스냅샷을 직접 갱신하므로 읽기·저장에 즉시 반영되고, 스냅샷 갱신이 새 Undo 이력을 만들지는 않습니다. 이동할 이력이 없으면 `changed=false`를 반환합니다. 배치 또는 미적용 그리기가 남아 있으면 먼저 적용해야 합니다.
 
 ### 완료 확인
 
@@ -128,6 +131,8 @@ set_auto_commit(enabled=true)
 | `commit` | 자동 실행 설정과 관계없이 MCP Bridge 실행 요청 |
 | `wait_for_idle` | 그리기와 스냅샷 갱신 완료 대기 |
 | `set_auto_commit` | 그리기 후 자동 실행 켜기·끄기 |
+| `begin_batch`, `end_batch` | 여러 그리기를 하나의 Undo 단계로 적용 |
+| `undo`, `redo` | 활성 문서의 이력 이동 및 읽기 스냅샷 갱신 |
 | `diagnose_services` | 내부 서비스 연결 진단 |
 
 ### 그리기
@@ -224,6 +229,8 @@ Bridge의 파이프 서버는 최초 효과 실행 후 Paint.NET 프로세스가
 - 저장 PNG를 다시 열어 전체 색상 픽셀 수와 좌표 검증
 
 회귀 검증은 병렬 타일 렌더링, 호스트의 재사용 ROI 배열, 취소 후 재시도, 선택 영역, MCP stdio·파이프 연결, 저장 이미지, 오류 처리와 UI 실행 예약을 포함한 9개 항목입니다. 레이어·문서·OCR·AI 배경 제거 등 전체 도구의 실제 앱 동작을 모두 검증한 결과는 아닙니다.
+
+0.5.17은 Undo/Redo와 명시적 작업 묶음을 추가합니다. 배치 상태·문서 바인딩·빈 배치·빈 이력의 스냅샷 갱신을 포함한 회귀 검증 10개를 통과했습니다. 실제 Paint.NET 5.1.12의 1400×1050 캔버스에서는 그리기 3개가 Undo 한 단계로 기록되는 것을 확인했습니다. Undo 후 저장 PNG는 작업 전 이미지와, Redo 후 저장 PNG는 적용 결과와 전체 픽셀이 일치했습니다. 새 편집 후 Redo 이력 초기화와 빈 배치의 이력 미생성도 확인했습니다.
 
 Paint.NET과 .NET 9 SDK가 설치된 Windows에서 실행합니다. 테스트는 별도 파이프를 사용합니다. 설치된 Paint.NET DLL과 시스템 런타임의 사전 컴파일 코드 차이를 피하기 위해 ReadyToRun을 끕니다.
 

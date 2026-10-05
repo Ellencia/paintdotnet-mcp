@@ -28,6 +28,11 @@ internal static class ImageIO
     private static long _snapTick;
 
     public static bool HasSnapshot => _snapBgra is not null;
+
+    public static void InvalidateSnapshot()
+    {
+        lock (_snapGate) _snapBgra = null;
+    }
     public static int SnapshotWidth { get { lock (_snapGate) return _snapW; } }
     public static int SnapshotHeight { get { lock (_snapGate) return _snapH; } }
     public static long SnapshotTick { get { lock (_snapGate) return _snapTick; } }

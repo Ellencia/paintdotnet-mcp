@@ -21,7 +21,7 @@ namespace PaintDotNetMcp.Bridge;
 //   - Tries best-effort auto-commit after a queued op so the user doesn't have to keep clicking the menu.
 internal static class BridgeServer
 {
-    public const string Version = "0.5.16";
+    public const string Version = "0.5.17";
 
     private static readonly object _gate = new();
     private static bool _started;
@@ -32,6 +32,21 @@ internal static class BridgeServer
     private static long _queuedRevision;
     private static long _completedRevision;
     private static string? _renderError;
+    private static long _batchRenderedRevision = -1;
+
+    public static void AcceptBatchRender()
+    {
+        lock (_gate)
+        {
+            if (_batchRenderedRevision != _queuedRevision)
+                throw new InvalidOperationException("Batch tiles did not finish; retry end_batch.");
+            for (long i = _completedRevision; i < _queuedRevision; i++) _pendingOps.TryDequeue(out _);
+            _completedRevision = _queuedRevision;
+            _renderError = null;
+            _batchRenderedRevision = -1;
+            Monitor.PulseAll(_gate);
+        }
+    }
 
     // Last seen Effect instance (set on construction). Used by read-only queries and auto-commit reflection.
     private static volatile BridgeEffect? _lastEffect;
@@ -68,6 +83,7 @@ internal static class BridgeServer
     public static RenderBatch PrepareRenderPass(BridgeEffect effect, RenderArgs srcArgs,
         IReadOnlyList<Rectangle>? selectionScans = null)
     {
+        HistoryOps.ValidateRender();
         _lastEffect = effect;
         AppServices.Capture(effect);
         selectionScans ??= effect.EnvironmentParameters.GetSelectionAsScans();
@@ -79,6 +95,7 @@ internal static class BridgeServer
             // Keep operations queued until rendering succeeds. A cancelled render can retry.
             operations = _pendingOps.ToArray();
             _renderError = null;
+            if (HistoryOps.BatchActive) _batchRenderedRevision = -1;
         }
         try
         {
@@ -90,6 +107,12 @@ internal static class BridgeServer
                     try
                     {
                         ImageIO.CaptureSnapshot(snapshot);
+                        // A batch is accepted only after the native host adds its Undo step.
+                        if (HistoryOps.BatchActive)
+                        {
+                            _batchRenderedRevision = revision;
+                            return;
+                        }
                         for (long i = _completedRevision; i < revision; i++) _pendingOps.TryDequeue(out _);
                         _completedRevision = revision;
                         _renderError = null;
@@ -126,6 +149,8 @@ internal static class BridgeServer
     {
         if (timeoutMs < 0 || timeoutMs > 60000)
             throw new ArgumentOutOfRangeException(nameof(timeoutMs), "timeoutMs must be 0-60000");
+        if (HistoryOps.BatchActive && PendingCount > 0)
+            throw new InvalidOperationException("A drawing batch is pending; call end_batch before waiting, reading, or saving.");
         lock (_gate)
         {
             long target = _queuedRevision;
@@ -192,6 +217,10 @@ internal static class BridgeServer
 
         try
         {
+            if (HistoryOps.BatchActive && req.Method is "commit" or "set_auto_commit" or
+                "add_layer" or "delete_layer" or "select_layer" or "apply_effect" or
+                "set_selection_rect" or "set_selection_polygon" or "clear_selection")
+                throw new InvalidOperationException("Finish the active batch with end_batch before this operation.");
             // Snapshot consumers must not race an outstanding drawing operation.
             if (req.Method is "get_canvas_png" or "save_png" or "extract_region" or
                 "remove_background" or "detect_objects" or "extract_objects" or "ocr_region")
@@ -213,6 +242,10 @@ internal static class BridgeServer
                 "extract_region"     => HandleExtractRegion(req),
                 "remove_background"  => HandleRemoveBackground(req),
                 "commit"             => HandleCommit(req),
+                "begin_batch"        => Ok(req.Id, HistoryOps.BeginBatch()),
+                "end_batch"          => Ok(req.Id, HistoryOps.EndBatch()),
+                "undo"               => Ok(req.Id, HistoryOps.Step(redo: false)),
+                "redo"               => Ok(req.Id, HistoryOps.Step(redo: true)),
                 "wait_for_idle"      => Ok(req.Id, WaitForIdle(req.Params?.Deserialize<WaitForIdleParams>()?.TimeoutMs ?? 5000)),
                 "set_auto_commit"    => HandleSetAutoCommit(req),
                 "detect_objects"     => HandleDetectObjects(req),
@@ -241,6 +274,8 @@ internal static class BridgeServer
 
     private static RpcResponse QueueOp<TParams>(RpcRequest req, Func<TParams, PendingOp> factory)
     {
+        if (HistoryOps.BatchActive && !AppServices.InvokeOnUiThread(HistoryOps.ValidateBatchTarget, out var batchNote))
+            throw new InvalidOperationException(batchNote);
         if (req.Params is null) return Err(req.Id, "missing params");
         var p = req.Params.Value.Deserialize<TParams>()
             ?? throw new InvalidOperationException("could not deserialize params");

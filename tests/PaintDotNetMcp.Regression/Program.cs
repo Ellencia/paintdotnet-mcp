@@ -41,6 +41,38 @@ static async Task Run()
     static bool Pixel(Surface surface, int x, int y, byte r, byte g, byte b) =>
         surface[x, y].R == r && surface[x, y].G == g && surface[x, y].B == b;
 
+    var historyServices = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.AppServices")!;
+    var historyCache = (Dictionary<string, object?>)historyServices.GetField("_cache", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+    using (var historySurface = new Surface(12, 10))
+    {
+        historySurface.Fill(ColorBgra.FromBgra(30, 20, 10, 255));
+        var historyWorkspace = new TestHistoryWorkspace(new TestHistoryLayer(historySurface));
+        var historyApp = new TestHistoryApp { ActiveDocumentWorkspace = historyWorkspace };
+        historyCache["mainForm"] = new TestUiDispatcher();
+        historyCache["appws"] = historyApp;
+        Check(Call("begin_batch").Ok, "Begin batch");
+        Check(!Call("begin_batch").Ok, "Nested batch rejected");
+        Check(!Call("undo").Ok && !Call("redo").Ok, "History changes rejected during batch");
+        Check(!Call("commit").Ok && !Call("set_auto_commit", new SetAutoCommitParams { Enabled = true }).Ok, "Batch cannot be split by commit or auto-commit");
+        historyApp.ActiveDocumentWorkspace = new TestHistoryWorkspace(new TestHistoryLayer(historySurface));
+        Check(!Call("fill", new FillParams { R = 255 }).Ok, "Drawing cannot move to another batch document");
+        Check(!Call("end_batch").Ok, "Wrong-document batch completion rejected");
+        historyApp.ActiveDocumentWorkspace = historyWorkspace;
+        var emptyBatch = Call("end_batch");
+        Check(emptyBatch.Ok && emptyBatch.Result!.Value.GetProperty("history_steps").GetInt32() == 0, "Empty batch creates no history step");
+        Check(!Call("end_batch").Ok, "End without batch rejected");
+        foreach (var method in new[] { "undo", "redo" })
+        {
+            var unchanged = Call(method);
+            Check(unchanged.Ok && !unchanged.Result!.Value.GetProperty("changed").GetBoolean(), "Empty history is a no-op");
+            var encoded = Call("get_canvas_png");
+            Check(encoded.Ok && encoded.Result!.Value.GetProperty("Width").GetInt32() == 12, "History no-op refreshes active-layer snapshot");
+        }
+        historyCache.Remove("mainForm");
+        historyCache.Remove("appws");
+    }
+    Console.WriteLine("PASS batch state guards, document binding, empty batch, and empty-history snapshot refresh");
+
     Check(Call("set_auto_commit", new SetAutoCommitParams { Enabled = false }).Ok, "Disable auto-commit");
     using var source = new Surface(800, 600);
     using var destination = new Surface(800, 600);
@@ -48,6 +80,7 @@ static async Task Run()
     var queued = Call("fill", new FillParams { R = 230, G = 40, B = 15 });
     Check(queued.Ok && !queued.Result!.Value.GetProperty("auto_committed").GetBoolean(), "Queue must not claim completion");
     Check(!Call("wait_for_idle", new WaitForIdleParams { TimeoutMs = 0 }).Ok, "Queued op must not complete");
+    Check(!Call("begin_batch").Ok && !Call("undo").Ok && !Call("redo").Ok, "Unapplied drawing blocks history and batch boundaries");
     var rois = Enumerable.Range(0, 30).Select(i => new Rectangle(i % 5 * 160, i / 5 * 100, 160, 100)).ToArray();
     var batch = Prepare(source);
     Render(batch, destination, rois, 0, 1);
@@ -215,8 +248,9 @@ static async Task CheckMcpProtocol()
         await Request(1, "initialize", new { protocolVersion = "2024-11-05", capabilities = new { }, clientInfo = new { name = "regression", version = "1" } });
         await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
         var list = await Request(2, "tools/list", new { });
-        if (!list.GetProperty("tools").EnumerateArray().Any(tool => tool.GetProperty("name").GetString() == "wait_for_idle"))
-            throw new Exception("wait_for_idle missing from MCP tools/list");
+        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo" })
+            if (!list.GetProperty("tools").EnumerateArray().Any(tool => tool.GetProperty("name").GetString() == required))
+                throw new Exception(required + " missing from MCP tools/list");
         var called = await Request(3, "tools/call", new { name = "wait_for_idle", arguments = new { timeoutMs = 0 } });
         if (called.TryGetProperty("isError", out var isError) && isError.GetBoolean())
             throw new Exception("MCP wait_for_idle failed: " + called);
@@ -233,10 +267,33 @@ static async Task CheckMcpProtocol()
 
 sealed class TestUiDispatcher
 {
+    public bool InvokeRequired => false;
     public List<Delegate> Callbacks { get; } = new();
     public object BeginInvoke(Delegate callback)
     {
         Callbacks.Add(callback);
         return new object();
     }
+}
+
+sealed class TestHistoryApp
+{
+    public TestHistoryWorkspace ActiveDocumentWorkspace { get; set; } = null!;
+}
+
+sealed class TestHistoryWorkspace(TestHistoryLayer layer)
+{
+    public TestHistoryLayer ActiveLayer { get; } = layer;
+    public TestHistoryStacks History { get; } = new();
+}
+
+sealed class TestHistoryLayer(Surface surface)
+{
+    public Surface Surface { get; } = surface;
+}
+
+sealed class TestHistoryStacks
+{
+    public List<object> UndoStack { get; } = new();
+    public List<object> RedoStack { get; } = new();
 }

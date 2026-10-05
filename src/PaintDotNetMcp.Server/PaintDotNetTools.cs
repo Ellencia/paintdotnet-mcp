@@ -56,6 +56,34 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     // ---- Drawing primitives (queued) ---------------------------------------
 
     [McpServerTool, Description(
+        "Begin a drawing batch on the active document and layer. Drawing is queued until end_batch " +
+        "runs MCP Bridge once, producing one Undo step. Rejects nested batches and pending drawing. " +
+        "Do not change the active tab, layer, selection, or edit manually during a batch.")]
+    public async Task<string> BeginBatch(CancellationToken ct = default)
+        => (await bridge.CallAsync("begin_batch", null, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description(
+        "Apply the active drawing batch in one MCP Bridge execution and return applied_operations " +
+        "and history_steps. Restores the previous auto-commit setting. An empty batch creates no " +
+        "history step. On rendering failure the batch remains active for retry.")]
+    public async Task<string> EndBatch(CancellationToken ct = default)
+        => (await bridge.CallAsync("end_batch", null, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description(
+        "Undo one native Paint.NET history step on the active document, including manual edits. " +
+        "Refreshes the active-layer read/save snapshot without creating a new history step. " +
+        "Rejects an active batch or unapplied drawing. Returns changed=false when no Undo is available.")]
+    public async Task<string> Undo(CancellationToken ct = default)
+        => (await bridge.CallAsync("undo", null, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description(
+        "Redo one native Paint.NET history step and refresh the active-layer read/save snapshot " +
+        "without clearing remaining Redo history. Rejects an active batch or unapplied drawing. " +
+        "Returns changed=false when no Redo is available.")]
+    public async Task<string> Redo(CancellationToken ct = default)
+        => (await bridge.CallAsync("redo", null, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description(
         "Queue a fill operation on the active layer. The fill applies on the next render pass " +
         "(auto-committed when possible; otherwise user must invoke Effects > Tools > MCP Bridge). " +
         "If x/y/width/height are omitted the entire surface is filled.")]
