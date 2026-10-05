@@ -63,15 +63,28 @@ internal sealed class DrawPolygonOp(DrawPolygonParams p) : PendingOp
     }
 }
 
-internal sealed class DrawTextOp(DrawTextParams p) : PendingOp
+internal sealed class DrawTextOp : PendingOp
 {
+    private readonly DrawTextParams _parameters;
+    private readonly byte[] _pixels;
+    private readonly int _width, _height;
+
+    public DrawTextOp(DrawTextParams p)
+    {
+        if (string.IsNullOrWhiteSpace(p.Text) || p.Text.Length > 4096)
+            throw new ArgumentException("Text must contain 1..4096 characters.");
+        if (!float.IsFinite(p.FontSize) || p.FontSize <= 0 || p.FontSize > 512)
+            throw new ArgumentException("Font size must be finite and greater than zero, up to 512 pixels.");
+        if (string.IsNullOrWhiteSpace(p.FontFamily)) throw new ArgumentException("Specify an installed font family.");
+        _parameters = p;
+        // Resolve fonts and render before enqueueing, so invalid input cannot poison pending drawing.
+        _pixels = ImageIO.RenderText(p.Text, p.FontFamily, p.FontSize, p.Bold, p.Italic,
+            p.R, p.G, p.B, p.A, p.AntiAlias, out _width, out _height);
+    }
+
     public override void Apply(Surface s)
     {
-        var buf = ImageIO.RenderText(
-            p.Text, p.FontFamily, p.FontSize, p.Bold, p.Italic,
-            p.R, p.G, p.B, p.A, p.AntiAlias,
-            out int w, out int h);
-        ImageIO.BlitOnto(s, buf, w, h, p.X, p.Y, replaceAlpha: false);
+        ImageIO.BlitOnto(s, _pixels, _width, _height, _parameters.X, _parameters.Y, replaceAlpha: false);
     }
 }
 

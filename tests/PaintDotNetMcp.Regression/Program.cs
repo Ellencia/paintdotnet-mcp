@@ -44,6 +44,16 @@ static async Task Run()
     Check(!Call("set_selection_rect", new SetSelectionRectParams { X = int.MaxValue, Width = 10, Height = 10 }).Ok, "Overflow selection rejected");
     Check(!Call("set_selection_polygon", new SetSelectionPolygonParams { Points = [new() { X = 1, Y = 1 }, new() { X = 1, Y = 1 }, new() { X = 2, Y = 2 }] }).Ok, "Polygon must have three distinct points");
     Console.WriteLine("PASS native selection input validation");
+    Check(!Call("resize_canvas", new ResizeCanvasParams { Width = 0, Height = 20 }).Ok, "Invalid resize rejected before native mutation");
+    Check(!Call("resize_canvas", new ResizeCanvasParams { Width = 10000, Height = 10000 }).Ok, "Excessive resize rejected");
+    Check(!Call("resize_canvas", new ResizeCanvasParams { Width = 20, Height = 20, Anchor = "invalid" }).Ok, "Invalid anchor rejected");
+    Check(!Call("copy_selection_to_layer", new CopySelectionToLayerParams { Name = " " }).Ok, "Empty layer name rejected");
+    foreach (var size in new[] { 0f, -1f, 513f })
+        Check(!Call("draw_text", new DrawTextParams { Text = "Test", FontSize = size }).Ok, "Invalid text size rejected before queueing");
+    Check(!Call("draw_text", new DrawTextParams { Text = " " }).Ok, "Empty text rejected");
+    Check(!Call("draw_text", new DrawTextParams { Text = "Test", FontFamily = "MCP Nonexistent Font 5723" }).Ok, "Missing font rejected instead of silently substituting");
+    Check((int)server.GetProperty("PendingCount")!.GetValue(null)! == 0, "Invalid editing inputs leave no pending operations");
+    Console.WriteLine("PASS canvas editing and text validation reject invalid input without pending mutations");
     Check(!Call("transform_layer", new TransformLayerParams { ScaleX = 0 }).Ok, "Invalid transform is not queued");
     Check(!Call("transform_layer", new TransformLayerParams { Interpolation = "invalid" }).Ok, "Invalid interpolation is not queued");
     object Prepare(Surface source, Rectangle[]? scans = null) =>
@@ -75,6 +85,7 @@ static async Task Run()
         Check(!Call("begin_batch").Ok, "Nested batch rejected");
         Check(!Call("new_canvas").Ok && !Call("open_image").Ok, "Document changes rejected during batch");
         Check(!Call("set_selection_rect", new SetSelectionRectParams { Width = 5, Height = 5 }).Ok && !Call("clear_selection").Ok, "Selection changes rejected during batch");
+        Check(!Call("copy_selection_to_layer").Ok && !Call("crop_to_selection").Ok && !Call("resize_canvas", new ResizeCanvasParams { Width = 20, Height = 20 }).Ok, "Layer and canvas edits rejected during batch");
         Check(!Call("undo").Ok && !Call("redo").Ok, "History changes rejected during batch");
         Check(!Call("commit").Ok && !Call("set_auto_commit", new SetAutoCommitParams { Enabled = true }).Ok, "Batch cannot be split by commit or auto-commit");
         historyApp.ActiveDocumentWorkspace = new TestHistoryWorkspace(new TestHistoryLayer(historySurface));
@@ -272,7 +283,7 @@ static async Task CheckMcpProtocol()
         await Request(1, "initialize", new { protocolVersion = "2024-11-05", capabilities = new { }, clientInfo = new { name = "regression", version = "1" } });
         await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
         var list = await Request(2, "tools/list", new { });
-        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo", "new_canvas", "open_image", "transform_layer", "get_selection" })
+        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo", "new_canvas", "open_image", "transform_layer", "get_selection", "copy_selection_to_layer", "resize_canvas", "crop_to_selection", "draw_text" })
             if (!list.GetProperty("tools").EnumerateArray().Any(tool => tool.GetProperty("name").GetString() == required))
                 throw new Exception(required + " missing from MCP tools/list");
         var called = await Request(3, "tools/call", new { name = "wait_for_idle", arguments = new { timeoutMs = 0 } });

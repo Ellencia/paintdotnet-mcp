@@ -8,6 +8,27 @@ namespace PaintDotNetMcp.Server;
 [McpServerToolType]
 public sealed class PaintDotNetTools(BridgeClient bridge)
 {
+    [McpServerTool, Description("Copy the active layer's selected pixels into a new transparent layer directly above it, preserving canvas coordinates and source pixels. Requires a native selection. Uses pixel coverage scans, without feathering. Selects the new layer; one native Undo step. Clear selection before moving the whole new layer with transform_layer. Finish pending drawing or an active batch first.")]
+    public async Task<string> CopySelectionToLayer(string name = "Selection", CancellationToken ct = default)
+    {
+        var result = await bridge.CallAsync("copy_selection_to_layer", new CopySelectionToLayerParams { Name = name }, ct);
+        return result?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description("Change canvas dimensions without rescaling pixels, for all layers. Anchor: top_left, top, top_right, left, center, right, bottom_left, bottom, bottom_right. Added space uses RGBA fill, transparent by default. Smaller dimensions clip pixels. Clears selection; one native Undo step, or zero for unchanged size. Finish pending drawing or a batch first.")]
+    public async Task<string> ResizeCanvas(int width, int height, string anchor = "center", byte r = 0, byte g = 0, byte b = 0, byte a = 0, CancellationToken ct = default)
+    {
+        var result = await bridge.CallAsync("resize_canvas", new ResizeCanvasParams { Width = width, Height = height, Anchor = anchor, R = r, G = g, B = b, A = a }, ct);
+        return result?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description("Crop all layers to the current native selection using Paint.NET's Crop to Selection. Nonrectangular selections mask pixels outside their shape to transparency. Requires a nonempty selection; clears selection and creates one native Undo step. Finish pending drawing or a batch first.")]
+    public async Task<string> CropToSelection(CancellationToken ct = default)
+    {
+        var result = await bridge.CallAsync("crop_to_selection", null, ct);
+        return result?.ToString() ?? "{}";
+    }
+
     // ---- Connectivity ------------------------------------------------------
 
     [McpServerTool, Description(
@@ -225,7 +246,9 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
 
     [McpServerTool, Description(
         "Queue text rendering on the active layer at (x,y) using a system font. Anti-aliased by default. " +
-        "Note: requires the named font to exist on the host; falls back to a generic sans-serif if not.")]
+        "Supports newlines, bold, italic, RGBA color, selection clipping and native Undo/Redo or batches. " +
+        "Text is rasterized into pixels, not an editable text object. Text length 1..4096; fontSize in pixels, greater than zero and up to 512. " +
+        "Requires an installed font family and available style; invalid input is rejected before queueing.")]
     public async Task<string> DrawText(
         int x, int y,
         string text,

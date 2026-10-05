@@ -211,9 +211,9 @@ internal static class ImageIO
         var style = FontStyle.Regular;
         if (bold) style |= FontStyle.Bold;
         if (italic) style |= FontStyle.Italic;
-        Font font;
-        try { font = new Font(fontFamily, fontSize, style, GraphicsUnit.Pixel); }
-        catch { font = new Font(FontFamily.GenericSansSerif, fontSize, style, GraphicsUnit.Pixel); }
+        using var family = new FontFamily(fontFamily);
+        if (!family.IsStyleAvailable(style)) throw new ArgumentException("Requested font style is not available for " + fontFamily + ".");
+        using var font = new Font(family, fontSize, style, GraphicsUnit.Pixel);
 
         SizeF sz;
         using (var probe = new Bitmap(1, 1))
@@ -223,6 +223,8 @@ internal static class ImageIO
         }
         w = Math.Max(1, (int)Math.Ceiling(sz.Width) + 2);
         h = Math.Max(1, (int)Math.Ceiling(sz.Height) + 2);
+        if (w > 16384 || h > 16384 || (long)w * h > 16_000_000)
+            throw new ArgumentException("Rendered text exceeds the 16384-pixel edge or 16-million-pixel bitmap limit. Reduce text length or font size.");
 
         using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
         using (var gx = Graphics.FromImage(bmp))
@@ -234,7 +236,6 @@ internal static class ImageIO
             using var brush = new SolidBrush(Color.FromArgb(a, r, g, b));
             gx.DrawString(text, font, brush, 0, 0);
         }
-        font.Dispose();
 
         var buf = new byte[w * h * 4];
         var data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
