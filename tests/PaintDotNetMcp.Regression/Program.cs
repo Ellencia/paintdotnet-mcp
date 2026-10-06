@@ -77,6 +77,13 @@ static async Task Run()
     Console.WriteLine("PASS layer function input validation");
     // Paint.NET loads Effects.Legacy at startup; this host must touch it (a bare typeof is not enough).
     Check(typeof(PaintDotNet.Effects.GaussianBlurEffect).Assembly.GetName().Name == "PaintDotNet.Effects.Legacy", "Legacy effects loaded");
+    // The Effects menu's own effects are GPU ones (internal, PaintDotNet.Effects.Gpu); load before the catalog caches.
+    System.Reflection.Assembly.Load("PaintDotNet.Effects.Gpu");
+    var effects = Call("list_effects", null);
+    Check(effects.Ok && effects.Result!.Value.GetProperty("Effects").EnumerateArray().Any(e => e.GetProperty("Name").GetString() == "GaussianBlurGpuEffect"), "GPU effects listed: " + effects.Error);
+    // This host has no Paint.NET settings service, which GPU defaults read; the real app supplies it.
+    var gpuBlur = Call("get_effect_properties", new { Name = "GaussianBlurGpuEffect" });
+    Check(!gpuBlur.Ok && gpuBlur.Error!.Contains("ISettingsService"), "GPU effect defaults reach Paint.NET services: " + gpuBlur.Error);
     var blurProps = Call("get_effect_properties", new { Name = "GaussianBlurEffect" });
     Check(blurProps.Ok && blurProps.Result!.Value.GetProperty("Properties")[0].GetProperty("Max").GetInt32() == 200, "Effect properties expose name and range: " + blurProps.Error);
     bool RejectsFx(object props, string text) => Call("apply_effect", new { Name = "GaussianBlurEffect", Properties = props }) is { Ok: false } r && r.Error!.Contains(text);

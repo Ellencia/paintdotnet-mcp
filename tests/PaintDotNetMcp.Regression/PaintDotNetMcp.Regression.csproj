@@ -13,5 +13,6 @@
     <Reference Include="PaintDotNet.Primitives" HintPath="$(PaintDotNetDir)/PaintDotNet.Primitives.dll" />
     <Reference Include="PaintDotNet.Effects" HintPath="$(PaintDotNetDir)/PaintDotNet.Effects.dll" />
     <Reference Include="PaintDotNet.Effects.Legacy" HintPath="$(PaintDotNetDir)/PaintDotNet.Effects.Legacy.dll" />
+    <Reference Include="PaintDotNet.Effects.Gpu" HintPath="$(PaintDotNetDir)/PaintDotNet.Effects.Gpu.dll" />
   </ItemGroup>
 </Project>

@@ -468,6 +468,8 @@ Bridge의 파이프 서버는 플러그인 검색 중 생성자가 호출될 때
 
 0.5.30은 효과 설정값을 다룹니다. `get_effect_properties`가 효과의 설정 이름·종류·기본값·범위를 돌려주고, `apply_effect`가 `properties`로 받은 값을 넣어 대화상자 없이 실행합니다(Paint.NET의 "효과 반복" 경로). 실제 Paint.NET 5.1.12의 200×100 캔버스(x=100에서 흰색/검정 경계)에 위쪽 절반을 선택하고 MCP 도구로 GaussianBlur `Radius: 20`을 적용해, 선택 안쪽 경계가 ±20px에 걸쳐 번지고 선택 바깥은 그대로인 것을 확인했습니다. MotionBlur `Angle: 0.0, Centered: false, Distance: 30`은 경계 오른쪽으로만 정확히 30px 램프를 만들어 double·bool·int 값이 모두 반영되었습니다. 각 적용은 Undo 한 단계이며 Undo 후 해당 행이 적용 전과 바이트 단위로 같습니다. 범위 밖 값(`Radius: 999`), 없는 설정 이름, 타입이 다른 값은 픽셀과 이력을 건드리지 않고 이유와 함께 거부됩니다. `list_effects`는 레거시 CPU 효과만 찾으며 메뉴의 GPU 기반 효과는 아직 다루지 못합니다. 회귀 검증 25개가 통과했습니다.
 
+0.5.31은 Paint.NET 효과 메뉴에 실제로 보이는 GPU 효과(`GaussianBlurGpuEffect`, `MorphologyGpuEffect` 등)를 `list_effects`·`get_effect_properties`·`apply_effect`에서 다룹니다. 이전 버전이 찾던 레거시 CPU 효과는 메뉴에 표시되지 않는 구현이며(`Category: DoNotDisplay`) 계속 목록에 남습니다. GPU 효과는 기본값을 앱 설정에서 읽으므로 Paint.NET의 기본 서비스와 환경으로 초기화한 뒤 설정 목록을 만듭니다. 실제 Paint.NET 5.1.12의 200×100 캔버스(x=100에서 흰색/검정 경계)에서 `GaussianBlurGpuEffect`가 앱 설정의 Quality 4를 기본값으로 보고하고, 위쪽 절반 선택에 `Radius: 20`을 적용해 선택 안쪽만 경계가 x=83–123에 걸쳐 번지는 것을 확인했습니다. `MorphologyGpuEffect`의 `Mode: Erode`/`Dilate`(Width·Height 10)는 경계를 각각 x=96과 x=105로 반대 방향으로 옮겨 목록형 설정이 반영되었습니다. 각 적용은 Undo 한 단계이며 Undo 후 해당 행이 적용 전과 바이트 단위로 같고, 범위 밖 값(`Radius: 999`, 범위 0..300)은 거부됩니다. GPU 효과 대부분은 카테고리가 `Unknown`으로 표시되고, 색 설정(`ManagedColorProperty`)은 여전히 지정할 수 없습니다. 회귀 검증 25개가 통과했습니다.
+
 Paint.NET과 .NET 9 SDK가 설치된 Windows에서 실행합니다. 테스트는 별도 파이프를 사용합니다. 설치된 Paint.NET DLL과 시스템 런타임의 사전 컴파일 코드 차이를 피하기 위해 ReadyToRun을 끕니다.
 
 ```powershell

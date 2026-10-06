@@ -30,10 +30,10 @@ internal static class EffectsCatalog
     {
         if (_cachedTypes is not null) return _cachedTypes;
         var found = new List<Type>();
-        var effectBase = AppServices.FindType("PaintDotNet.Effects.Effect");
-        var pbe = AppServices.FindType("PaintDotNet.Effects.PropertyBasedEffect");
-        var bmpFx = AppServices.FindType("PaintDotNet.Effects.BitmapEffect");
-        var bases = new[] { effectBase, pbe, bmpFx }.Where(t => t is not null).ToArray();
+        // ClassicEffectBase roots the Legacy CPU effects (hidden from the menu); EffectBase roots
+        // BitmapEffect and the GPU effects the Effects menu actually shows (e.g. GaussianBlurGpuEffect).
+        var bases = new[] { "PaintDotNet.Effects.ClassicEffectBase", "PaintDotNet.Effects.EffectBase" }
+            .Select(AppServices.FindType).OfType<Type>().ToArray();
         if (bases.Length == 0) { _cachedTypes = found; return found; }
 
         foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
@@ -46,8 +46,7 @@ internal static class EffectsCatalog
             foreach (var t in types)
             {
                 if (t.IsAbstract || t.IsInterface) continue;
-                if (!bases.Any(b => b is not null && b.IsAssignableFrom(t))) continue;
-                if (t == effectBase || t == pbe || t == bmpFx) continue;
+                if (!bases.Any(b => b.IsAssignableFrom(t))) continue;
                 if (t.Namespace == "PaintDotNetMcp.Bridge") continue; // skip our own bridge effect
                 found.Add(t);
             }
@@ -102,7 +101,16 @@ internal static class EffectsCatalog
         var m = effectType.GetMethod("CreatePropertyCollection", BindingFlags.Public | BindingFlags.Instance, Type.EmptyTypes);
         if (m is null) return null;
         var effect = Activator.CreateInstance(effectType, nonPublic: true);
-        try { return (PropertyCollection?)m.Invoke(effect, null); }
+        // GPU effects read their default quality from app settings through Services, which needs
+        // Paint.NET's service provider and an environment (the menu does this in EffectInfo.CreateInstance).
+        using var env = EffectEnvironmentParameters.DefaultParameters;
+        try
+        {
+            var services = typeof(EffectBase).GetMethod("CreateDefaultServiceProvider", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, null);
+            typeof(IEffect).GetMethod("Initialize", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance)!.Invoke(effect, [services, env]);
+            return (PropertyCollection?)m.Invoke(effect, null);
+        }
+        catch (TargetInvocationException ex) { throw new InvalidOperationException(effectType.Name + " settings: " + AppServices.Unwrap(ex)); }
         finally { (effect as IDisposable)?.Dispose(); }
     }
 
