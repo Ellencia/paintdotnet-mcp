@@ -17,7 +17,7 @@ namespace PaintDotNetMcp.Contracts;
 
 public static class PipeNames
 {
-    public const string BridgeVersion = "0.5.25";
+    public const string BridgeVersion = "0.5.26";
     public const string Default = "PaintDotNetMcp.Bridge.v1";
     // Allow regression processes to use an isolated pipe without touching a live canvas.
     public static string Current => Environment.GetEnvironmentVariable("PAINTDOTNET_MCP_PIPE_NAME") ?? Default;
@@ -550,6 +550,7 @@ public sealed class LayerDescriptor
     public bool IsActive { get; set; }
     public bool IsVisible { get; set; }
     public double Opacity { get; set; } = 1.0;
+    public string BlendMode { get; set; } = "Normal";
 }
 
 public sealed class ListLayersResult

@@ -692,7 +692,7 @@ internal static class BridgeServer
                 result.Layers.Add(new LayerDescriptor
                 {
                     Index = row.Index, Name = row.Name, Width = row.Width, Height = row.Height,
-                    IsActive = row.IsActive, IsVisible = row.IsVisible, Opacity = row.Opacity,
+                    IsActive = row.IsActive, IsVisible = row.IsVisible, Opacity = row.Opacity, BlendMode = row.BlendMode,
                 });
             }
         }
