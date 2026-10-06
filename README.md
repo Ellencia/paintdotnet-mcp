@@ -466,6 +466,8 @@ Bridge의 파이프 서버는 플러그인 검색 중 생성자가 호출될 때
 
 0.5.29는 사진 주석용 `draw_arrow`·`draw_marker`·`draw_callout`을 추가하고 `draw_rectangle`에 `cornerRadius`를 추가합니다. `draw_callout`은 계산한 박스를 `info.box`로 돌려주어 다음 콜아웃을 겹치지 않게 배치할 수 있습니다. 실제 Paint.NET 5.1.12의 사진(2252×4000)에 반지름 48의 번호 마커, 한글 64pt 굵은 콜아웃(지시선 포함, 박스 587×113), 두께 12의 화살표를 그려 마커 숫자가 원 가운데에 오고 화살촉 끝이 지정 좌표에 닿는 것을 확인했습니다. 세 도구가 각각 Undo 한 단계로 기록되며, Undo 한 번에 화살표만, 다음 Undo 한 번에 콜아웃 박스와 지시선이 함께 지워지는 것을 확인했습니다. 결과는 편집 가능한 텍스트 레이어가 아니라 픽셀입니다. 회귀 검증 24개가 통과했습니다.
 
+0.5.30은 효과 설정값을 다룹니다. `get_effect_properties`가 효과의 설정 이름·종류·기본값·범위를 돌려주고, `apply_effect`가 `properties`로 받은 값을 넣어 대화상자 없이 실행합니다(Paint.NET의 "효과 반복" 경로). 실제 Paint.NET 5.1.12의 200×100 캔버스(x=100에서 흰색/검정 경계)에 위쪽 절반을 선택하고 MCP 도구로 GaussianBlur `Radius: 20`을 적용해, 선택 안쪽 경계가 ±20px에 걸쳐 번지고 선택 바깥은 그대로인 것을 확인했습니다. MotionBlur `Angle: 0.0, Centered: false, Distance: 30`은 경계 오른쪽으로만 정확히 30px 램프를 만들어 double·bool·int 값이 모두 반영되었습니다. 각 적용은 Undo 한 단계이며 Undo 후 해당 행이 적용 전과 바이트 단위로 같습니다. 범위 밖 값(`Radius: 999`), 없는 설정 이름, 타입이 다른 값은 픽셀과 이력을 건드리지 않고 이유와 함께 거부됩니다. `list_effects`는 레거시 CPU 효과만 찾으며 메뉴의 GPU 기반 효과는 아직 다루지 못합니다. 회귀 검증 25개가 통과했습니다.
+
 Paint.NET과 .NET 9 SDK가 설치된 Windows에서 실행합니다. 테스트는 별도 파이프를 사용합니다. 설치된 Paint.NET DLL과 시스템 런타임의 사전 컴파일 코드 차이를 피하기 위해 ReadyToRun을 끕니다.
 
 ```powershell
