@@ -763,13 +763,26 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     }
 
     [McpServerTool, Description(
-        "Apply a built-in Paint.NET effect by name to the active layer. v0.5 uses default settings " +
-        "(no property bag yet). Reflection-based; probes RunEffect / PerformEffect on the workspace.")]
-    public async Task<string> ApplyEffect(
-        [Description("Short class name (e.g. \"GaussianBlurEffect\") or full namespace name.")] string name,
+        "List a built-in effect's settings: Name, Kind, current default Value, Min/Max, and Choices for list settings. " +
+        "Use the Names as keys for apply_effect's properties. Fails for effects that are not property based (Curves, Levels).")]
+    public async Task<string> GetEffectProperties(
+        [Description("Effect name from list_effects.")] string name,
         CancellationToken ct = default)
     {
-        var res = await bridge.CallAsync("apply_effect", new ApplyEffectParams { Name = name }, ct);
+        var res = await bridge.CallAsync("get_effect_properties", new ApplyEffectParams { Name = name }, ct);
+        return res?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description(
+        "Apply a built-in Paint.NET effect to the active layer, clipped to the selection, as one Undo step. " +
+        "Property-based effects run without a dialog using defaults plus the given properties " +
+        "(bool/int/double/string, or a list setting by its Choice text). Curves and Levels open their dialog instead.")]
+    public async Task<string> ApplyEffect(
+        [Description("Effect name from list_effects.")] string name,
+        [Description("Optional settings, e.g. {\"Radius\": 8}; names from get_effect_properties.")] Dictionary<string, JsonElement>? properties = null,
+        CancellationToken ct = default)
+    {
+        var res = await bridge.CallAsync("apply_effect", new ApplyEffectParams { Name = name, Properties = properties }, ct);
         return res?.ToString() ?? "{}";
     }
 

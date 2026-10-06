@@ -15,7 +15,7 @@ internal static class HistoryOps
         AppServices.AppWorkspaceService() ?? throw new InvalidOperationException("No AppWorkspace"),
         "ActiveDocumentWorkspace") ?? throw new InvalidOperationException("No active document");
 
-    private static List<object> Stack(object workspace, string name)
+    internal static List<object> Stack(object workspace, string name)
     {
         var history = AppServices.GetPropertyValue(workspace, "History")
             ?? throw new InvalidOperationException("History not found");

@@ -1,6 +1,8 @@
 using System.Reflection;
+using System.Text.Json;
 using PaintDotNet;
 using PaintDotNet.Effects;
+using PaintDotNet.PropertySystem;
 
 namespace PaintDotNetMcp.Bridge;
 
@@ -9,14 +11,12 @@ namespace PaintDotNetMcp.Bridge;
 // Strategy:
 //   1. Enumerate types in PaintDotNet.* assemblies that derive from the Effect base classes.
 //   2. list_effects exposes name + category + asm so users can discover what's available.
-//   3. apply_effect(name) tries — in order — to invoke the effect through Paint.NET's own
-//      runner ("RunEffect" / "PerformEffect"-style methods on AppWorkspace / DocumentWorkspace).
-//      No fallback to a raw OnRender call is attempted; that path doesn't compose with the
-//      host's history/undo/threading and would produce confusing results.
+//   3. apply_effect(name, properties) runs property-based effects headless through Paint.NET's
+//      "Repeat effect" path (ApplyHeadless). The rest (Curves, Levels) fall back to RunEffect,
+//      which opens the effect's dialog for a human to confirm.
 //
 // Limitations:
-//   - v0.5 doesn't pass effect property values (e.g. blur radius). Effects with parameter-less
-//     defaults run; others may fail or produce no visible change.
+//   - Only bool/int/double/string and list-choice properties can be set; vectors, colors, etc. keep defaults.
 //   - The reflection path is best-effort. If Paint.NET 5 moves the runner method, the call
 //     returns a `note` listing the methods it inspected.
 internal static class EffectsCatalog
@@ -78,32 +78,136 @@ internal static class EffectsCatalog
         return result.OrderBy(e => e.Category).ThenBy(e => e.Name).ToList();
     }
 
-    public static InvokeResult Apply(string effectName)
-    {
-        var types = DiscoverEffectTypes();
-        var match = types.FirstOrDefault(t =>
+    private static Type FindType(string effectName) =>
+        DiscoverEffectTypes().FirstOrDefault(t =>
             string.Equals(t.Name, effectName, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(t.FullName, effectName, StringComparison.OrdinalIgnoreCase));
-        if (match is null) return new(false, "effect '" + effectName + "' not found (see list_effects)");
+            string.Equals(t.FullName, effectName, StringComparison.OrdinalIgnoreCase))
+        ?? throw new ArgumentException("effect '" + effectName + "' not found (see list_effects)");
 
+    private static object ResolveEffectInfo(Type match)
+    {
+        // Resolve the EffectInfo by walking EffectsCollection.Instance for the matching EffectType.
+        var (effectInfo, infoNote) = FindEffectInfoFor(match);
+        // Fallback: EffectsCollection only registers modern (BitmapEffect / GpuEffect) effects.
+        // For Legacy effects (PaintDotNet.Effects.Legacy.dll, 40+ items) we construct an
+        // EffectInfo manually from the Type.
+        return effectInfo ?? BuildEffectInfoFor(match, out var buildNote)
+            ?? throw new InvalidOperationException("no EffectInfo for " + match.Name + ": " + infoNote + " | build fallback: " + buildNote);
+    }
+
+    // Every built-in except Curves/Levels is property based: CreatePropertyCollection() gives the
+    // defaults, and a PropertyBasedEffectConfigToken over that collection is the whole config.
+    private static PropertyCollection? CreateProperties(Type effectType)
+    {
+        var m = effectType.GetMethod("CreatePropertyCollection", BindingFlags.Public | BindingFlags.Instance, Type.EmptyTypes);
+        if (m is null) return null;
+        var effect = Activator.CreateInstance(effectType, nonPublic: true);
+        try { return (PropertyCollection?)m.Invoke(effect, null); }
+        finally { (effect as IDisposable)?.Dispose(); }
+    }
+
+    private static object? Show(object? v) => v is null or bool or int or double or string ? v : v.ToString();
+
+    private static object Describe(Property p) => new
+    {
+        p.Name,
+        Kind = p.GetType().Name,
+        Value = Show(p.Value),
+        p.ReadOnly,
+        Min = Show(p.GetType().GetProperty("MinValue")?.GetValue(p)),
+        Max = Show(p.GetType().GetProperty("MaxValue")?.GetValue(p)),
+        Choices = (p.GetType().GetProperty("ValueChoices")?.GetValue(p) as System.Collections.IEnumerable)?.Cast<object>().Select(Show).ToList(),
+    };
+
+    public static object Properties(string effectName)
+    {
+        var type = FindType(effectName);
+        var props = CreateProperties(type)
+            ?? throw new InvalidOperationException(type.Name + " is not property based; apply_effect opens its own dialog.");
+        return new { Name = type.Name, Properties = props.Select(Describe).ToList() };
+    }
+
+    private static void SetValue(Property p, JsonElement v)
+    {
+        var choices = (p.GetType().GetProperty("ValueChoices")?.GetValue(p) as System.Collections.IEnumerable)?.Cast<object>();
+        object value;
+        try
+        {
+            value = choices is not null
+                ? choices.FirstOrDefault(c => string.Equals(c.ToString(), v.ToString(), StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException(p.Name + " must be one of: " + string.Join(", ", choices))
+                : p.ValueType == typeof(bool) ? v.GetBoolean()
+                : p.ValueType == typeof(int) ? v.GetInt32()
+                : p.ValueType == typeof(double) ? v.GetDouble()
+                : p.ValueType == typeof(string) ? v.GetString()!
+                : throw new ArgumentException(p.Name + " (" + p.ValueType.Name + ") cannot be set from MCP.");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
+        {
+            throw new ArgumentException(p.Name + " needs a " + p.ValueType.Name + " value, got " + v.GetRawText() + ".");
+        }
+        p.Value = value;
+        // Scalar properties clamp silently (Radius 999 → 200); reject instead of running a different effect.
+        if (!Equals(p.Value, value))
+            throw new ArgumentException(p.Name + " " + Show(value) + " is out of range " +
+                Show(p.GetType().GetProperty("MinValue")?.GetValue(p)) + ".." + Show(p.GetType().GetProperty("MaxValue")?.GetValue(p)) + ".");
+    }
+
+    /// <summary>
+    /// Run a property-based effect on the active layer without its dialog: Paint.NET's own
+    /// "Repeat effect" path (EffectMenuBase.OnRepeatEffectMenuItemClick → DoEffect) with our token
+    /// swapped in, so selection clipping and the single Undo step come from Paint.NET itself.
+    /// </summary>
+    public static object ApplyHeadless(string effectName, Dictionary<string, JsonElement>? values)
+    {
+        var type = FindType(effectName);
+        var props = CreateProperties(type);
+        if (props is null)
+        {
+            if (values is { Count: > 0 }) throw new InvalidOperationException(type.Name + " is not property based; values cannot be set.");
+            return Apply(type);
+        }
+        foreach (var (name, v) in values ?? [])
+        {
+            var p = props.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException("unknown property '" + name + "'; known: " + string.Join(", ", props.Select(x => x.Name)));
+            SetValue(p, v);
+        }
+        var token = new PropertyBasedEffectConfigToken(props);
+        var effectInfo = ResolveEffectInfo(type);
+        return NativeEditing.Run(workspace =>
+        {
+            var toolBar = AppServices.GetPropertyValue(AppServices.AppWorkspaceService()!, "ToolBar")!;
+            var mainMenu = AppServices.GetPropertyValue(toolBar, "MainMenu")!;
+            var menu = mainMenu.GetType().GetField("adjustmentsMenu", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(mainMenu)!;
+            var menuBase = AppServices.FindType("PaintDotNet.Menus.EffectMenuBase")!;
+            var infoField = menuBase.GetField("lastEffectInfo", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var tokenField = menuBase.GetField("lastEffectToken", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var (oldInfo, oldToken) = (infoField.GetValue(menu), tokenField.GetValue(menu));
+            int before = HistoryOps.Stack(workspace, "UndoStack").Count;
+            // ponytail: a render-time exception shows Paint.NET's modal error dialog and blocks this call
+            // until someone closes it; value errors are caught above by Property.Value instead.
+            try
+            {
+                infoField.SetValue(menu, effectInfo);
+                tokenField.SetValue(menu, token);
+                menuBase.GetMethod("OnRepeatEffectMenuItemClick", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .Invoke(menu, [null, EventArgs.Empty]);
+            }
+            finally { infoField.SetValue(menu, oldInfo); tokenField.SetValue(menu, oldToken); }
+            return new { Ok = true, Effect = type.Name, HistorySteps = HistoryOps.Stack(workspace, "UndoStack").Count - before,
+                Properties = props.Select(Describe).ToList() };
+        });
+    }
+
+    public static InvokeResult Apply(Type match)
+    {
         // Find AppWorkspace.RunEffect (or similar). The signature takes an EffectInfo wrapper,
         // not the Effect instance itself — EffectInfo carries metadata (icon, category, ...) the
         // host needs to wire up its menu/history.
         var host = AppServices.AppWorkspaceService() ?? AppServices.DocumentWorkspaceService();
         if (host is null) return new(false, "no AppWorkspace/DocumentWorkspace");
-
-        // Resolve the EffectInfo by walking EffectsCollection.Instance for the matching EffectType.
-        var (effectInfo, infoNote) = FindEffectInfoFor(match);
-        if (effectInfo is null)
-        {
-            // Fallback: EffectsCollection only registers modern (BitmapEffect / GpuEffect) effects.
-            // For Legacy effects (PaintDotNet.Effects.Legacy.dll, 40+ items) we construct an
-            // EffectInfo manually from the Type.
-            var built = BuildEffectInfoFor(match, out var buildNote);
-            if (built is null) return new(false, "no EffectInfo for " + match.Name + ": " + infoNote + " | build fallback: " + buildNote);
-            effectInfo = built;
-            infoNote = "constructed EffectInfo manually (" + buildNote + ")";
-        }
+        var effectInfo = ResolveEffectInfo(match);
 
         var runM = host.GetType()
             .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)

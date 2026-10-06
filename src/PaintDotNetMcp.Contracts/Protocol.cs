@@ -17,7 +17,7 @@ namespace PaintDotNetMcp.Contracts;
 
 public static class PipeNames
 {
-    public const string BridgeVersion = "0.5.29";
+    public const string BridgeVersion = "0.5.30";
     public const string Default = "PaintDotNetMcp.Bridge.v1";
     // Allow regression processes to use an isolated pipe without touching a live canvas.
     public static string Current => Environment.GetEnvironmentVariable("PAINTDOTNET_MCP_PIPE_NAME") ?? Default;
@@ -700,6 +700,8 @@ public sealed class ApplyEffectParams
 {
     /// <summary>Short class name (e.g. "GaussianBlurEffect") or full namespace name.</summary>
     public string Name { get; set; } = "";
+    /// <summary>Property name → value (see get_effect_properties). Null keeps every default.</summary>
+    public Dictionary<string, System.Text.Json.JsonElement>? Properties { get; set; }
 }
 
 public sealed class ApplyEffectResult

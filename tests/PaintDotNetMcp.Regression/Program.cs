@@ -75,6 +75,15 @@ static async Task Run()
     Check(RejectsFn(new() { Function = "duplicate", LayerIndex = -2 }, "index"), "Invalid layer function index rejected");
     Check(RejectsFn(new() { Function = "move" }, "toIndex"), "Move without destination rejected");
     Console.WriteLine("PASS layer function input validation");
+    // Paint.NET loads Effects.Legacy at startup; this host must touch it (a bare typeof is not enough).
+    Check(typeof(PaintDotNet.Effects.GaussianBlurEffect).Assembly.GetName().Name == "PaintDotNet.Effects.Legacy", "Legacy effects loaded");
+    var blurProps = Call("get_effect_properties", new { Name = "GaussianBlurEffect" });
+    Check(blurProps.Ok && blurProps.Result!.Value.GetProperty("Properties")[0].GetProperty("Max").GetInt32() == 200, "Effect properties expose name and range: " + blurProps.Error);
+    bool RejectsFx(object props, string text) => Call("apply_effect", new { Name = "GaussianBlurEffect", Properties = props }) is { Ok: false } r && r.Error!.Contains(text);
+    Check(RejectsFx(new { Radius = 999 }, "out of range 0..200"), "Out-of-range effect value rejected instead of clamped");
+    Check(RejectsFx(new { Radios = 3 }, "known: Radius"), "Unknown effect property rejected");
+    Check(RejectsFx(new { Radius = "big" }, "Radius"), "Wrong effect value type rejected");
+    Console.WriteLine("PASS effect property discovery and value validation");
     var cropMethod = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.ImageIO")!.GetMethod("ImageCrop")!;
     var clippedCrop = (Rectangle)cropMethod.Invoke(null, [640, 320, -10, -20, 50, 60])!;
     Check(clippedCrop == new Rectangle(0, 0, 40, 40), "Negative crop coordinates report actual clipped dimensions");

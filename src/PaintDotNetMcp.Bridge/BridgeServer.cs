@@ -285,6 +285,7 @@ internal static class BridgeServer
                 "save_pdn"           => HandleSavePdn(req),
                 "list_effects"       => HandleListEffects(req),
                 "apply_effect"       => HandleApplyEffect(req),
+                "get_effect_properties" => Ok(req.Id, EffectsCatalog.Properties(req.Params?.Deserialize<ApplyEffectParams>()?.Name ?? "")),
                 // v0.6 — selection / OCR
                 "set_selection_rect"    => HandleSetSelectionRect(req),
                 "set_selection_polygon" => HandleSetSelectionPolygon(req),
@@ -754,8 +755,8 @@ internal static class BridgeServer
     private static RpcResponse HandleApplyEffect(RpcRequest req)
     {
         var p = req.Params?.Deserialize<ApplyEffectParams>() ?? throw new InvalidOperationException("missing params");
-        var r = EffectsCatalog.Apply(p.Name);
-        return Ok(req.Id, new ApplyEffectResult { Ok = r.Ok, Note = r.Note });
+        var r = EffectsCatalog.ApplyHeadless(p.Name, p.Properties);
+        return Ok(req.Id, r is EffectsCatalog.InvokeResult ir ? new ApplyEffectResult { Ok = ir.Ok, Note = ir.Note } : r);
     }
 
     // -------------------- v0.6 selection / OCR handlers ---------------------
