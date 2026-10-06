@@ -310,7 +310,7 @@ static async Task CheckMcpProtocol()
         await Request(1, "initialize", new { protocolVersion = "2024-11-05", capabilities = new { }, clientInfo = new { name = "regression", version = "1" } });
         await process.StandardInput.WriteLineAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}");
         var list = await Request(2, "tools/list", new { });
-        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo", "new_canvas", "open_image", "transform_layer", "get_selection", "copy_selection_to_layer", "resize_canvas", "crop_to_selection", "draw_text", "create_text_layer", "update_text_layer", "get_text_layer", "list_text_layers", "open_text_editor", "get_document_image", "export_document", "set_layer_properties", "duplicate_layer", "move_layer", "merge_layer_down", "flatten_image" })
+        foreach (var required in new[] { "wait_for_idle", "begin_batch", "end_batch", "undo", "redo", "new_canvas", "open_image", "transform_layer", "get_selection", "copy_selection_to_layer", "resize_canvas", "crop_to_selection", "draw_text", "create_text_layer", "update_text_layer", "get_text_layer", "list_text_layers", "open_text_editor", "get_document_image", "export_document", "set_layer_properties", "duplicate_layer", "move_layer", "merge_layer_down", "flatten_image", "align_layer" })
             if (!list.GetProperty("tools").EnumerateArray().Any(tool => tool.GetProperty("name").GetString() == required))
                 throw new Exception(required + " missing from MCP tools/list");
         var called = await Request(3, "tools/call", new { name = "wait_for_idle", arguments = new { timeoutMs = 0 } });
@@ -412,6 +412,33 @@ static void CheckLayerTransforms()
     Apply(surface, new());
     Check(Enumerable.Range(0, 16).All(i => surface[i % 4, i / 4] == red), "Identity preserves every pixel");
     Console.WriteLine("PASS layer translation, clockwise rotation, pivot scaling, alpha-aware interpolation, clipping, and identity");
+
+    var align = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.AlignLayerOp")!;
+    void Align(Surface s, AlignLayerParams parameters)
+        => align.GetMethod("Apply")!.Invoke(Activator.CreateInstance(align, parameters), [s]);
+    using var canvas = new Surface(10, 8);
+    // Red 2x2 block at (1,1); blue pixel marks its top-left so orientation is checked too.
+    void Block() { canvas.Fill(clear); for (int i = 0; i < 4; i++) canvas[1 + i % 2, 1 + i / 2] = red; canvas[1, 1] = ColorBgra.FromBgra(255, 0, 0, 255); }
+    List<(int X, int Y)> Opaque() => Enumerable.Range(0, 80).Where(i => canvas[i % 10, i / 10].A > 0).Select(i => (i % 10, i / 10)).ToList();
+    Block(); Align(canvas, new() { Horizontal = "center", Vertical = "middle" });
+    Check(Opaque().SequenceEqual([(4, 3), (5, 3), (4, 4), (5, 4)]) && canvas[4, 3].B == 255 && canvas[5, 4] == red, "Center moves content losslessly");
+    Block(); Align(canvas, new() { Horizontal = "right", Vertical = "bottom", Margin = 1 });
+    Check(Opaque().SequenceEqual([(7, 5), (8, 5), (7, 6), (8, 6)]), "Right/bottom respects margin");
+    Block(); Align(canvas, new() { Horizontal = "left" });
+    Check(Opaque().SequenceEqual([(0, 1), (1, 1), (0, 2), (1, 2)]), "Omitted axis keeps its position");
+    Block(); Align(canvas, new() { Fit = "contain", Interpolation = "nearest" });
+    var fitted = Opaque();
+    Check(fitted.Count == 64 && fitted.Min(p => p.X) == 1 && fitted.Max(p => p.X) == 8 && fitted.Min(p => p.Y) == 0 && fitted.Max(p => p.Y) == 7,
+        "Contain scales uniformly to the limiting side and centers the other");
+    Block(); Align(canvas, new() { Horizontal = "left", Vertical = "top", TargetX = 6, TargetY = 4, TargetWidth = 4, TargetHeight = 4 });
+    Check(Opaque().SequenceEqual([(6, 4), (7, 4), (6, 5), (7, 5)]), "Explicit target box");
+    canvas.Fill(clear); Align(canvas, new() { Horizontal = "center" });
+    Check(Opaque().Count == 0, "Empty layer is left alone");
+    foreach (var bad in new AlignLayerParams[] { new(), new() { Horizontal = "middle" }, new() { Fit = "stretch" }, new() { Horizontal = "left", Margin = -1 },
+        new() { Horizontal = "left", TargetX = 0 }, new() { Horizontal = "left", TargetX = 0, TargetY = 0, TargetWidth = 4, TargetHeight = 4, Margin = 2 } })
+        Check(Throws(() => Activator.CreateInstance(align, bad)), "Invalid align input rejected");
+    static bool Throws(Action action) { try { action(); return false; } catch (TargetInvocationException) { return true; } }
+    Console.WriteLine("PASS align_layer center, margin, kept axis, contain fit, target box, empty layer and input validation");
 }
 
 static async Task CheckVersionGuard()

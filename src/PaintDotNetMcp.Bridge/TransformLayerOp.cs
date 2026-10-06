@@ -70,3 +70,70 @@ internal sealed class TransformLayerOp : PendingOp
         => x >= 0 && y >= 0 && x < source.Width && y < source.Height
             ? source[x, y] : ColorBgra.FromBgra(0, 0, 0, 0);
 }
+
+// Moves/scales the layer's visible content (alpha > 0) into a target box. Bounds are measured at
+// render time, so earlier queued drawing in the same pass is included.
+internal sealed class AlignLayerOp : PendingOp
+{
+    private readonly AlignLayerParams _parameters;
+
+    public AlignLayerOp(AlignLayerParams p)
+    {
+        if (p.Horizontal is not (null or "left" or "center" or "right"))
+            throw new ArgumentException("Horizontal must be left, center or right.");
+        if (p.Vertical is not (null or "top" or "middle" or "bottom"))
+            throw new ArgumentException("Vertical must be top, middle or bottom.");
+        if (p.Fit is not ("none" or "contain" or "cover")) throw new ArgumentException("Fit must be none, contain or cover.");
+        if (p.Fit == "none" && p.Horizontal is null && p.Vertical is null)
+            throw new ArgumentException("Specify horizontal, vertical or fit.");
+        if (p.Margin < 0) throw new ArgumentException("Margin must be nonnegative.");
+        bool anyTarget = p.TargetX.HasValue || p.TargetY.HasValue || p.TargetWidth.HasValue || p.TargetHeight.HasValue;
+        bool fullTarget = p.TargetX.HasValue && p.TargetY.HasValue && p.TargetWidth.HasValue && p.TargetHeight.HasValue;
+        if (anyTarget && !fullTarget) throw new ArgumentException("Target box needs targetX, targetY, targetWidth and targetHeight together.");
+        if (fullTarget && (p.TargetWidth <= 2 * p.Margin || p.TargetHeight <= 2 * p.Margin))
+            throw new ArgumentException("Target box must be larger than twice the margin.");
+        if (p.Interpolation is not ("nearest" or "bilinear")) throw new ArgumentException("Interpolation must be nearest or bilinear.");
+        _parameters = p;
+    }
+
+    public override void Apply(Surface surface)
+    {
+        var p = _parameters;
+        int left = surface.Width, top = surface.Height, right = -1, bottom = -1;
+        for (int y = 0; y < surface.Height; y++)
+            for (int x = 0; x < surface.Width; x++)
+                if (surface[x, y].A > 0)
+                {
+                    left = Math.Min(left, x); right = Math.Max(right, x);
+                    top = Math.Min(top, y); bottom = Math.Max(bottom, y);
+                }
+        if (right < 0) return;
+        double width = right - left + 1, height = bottom - top + 1;
+        // ponytail: canvas margin too large for the canvas collapses to a 1px box instead of failing mid-render.
+        double tx = (p.TargetX ?? 0) + p.Margin, ty = (p.TargetY ?? 0) + p.Margin;
+        double tw = Math.Max(1, (p.TargetWidth ?? surface.Width) - 2 * p.Margin);
+        double th = Math.Max(1, (p.TargetHeight ?? surface.Height) - 2 * p.Margin);
+        double scale = p.Fit switch
+        {
+            "contain" => Math.Min(tw / width, th / height),
+            "cover" => Math.Max(tw / width, th / height),
+            _ => 1
+        };
+        double Place(string? edge, double start, double size, double content, double current) => edge switch
+        {
+            "left" or "top" => start,
+            "center" or "middle" => start + (size - content) / 2,
+            "right" or "bottom" => start + size - content,
+            _ => p.Fit == "none" ? current : start + (size - content) / 2
+        };
+        double newLeft = Place(p.Horizontal, tx, tw, width * scale, left);
+        double newTop = Place(p.Vertical, ty, th, height * scale, top);
+        // Whole-pixel moves stay lossless under bilinear sampling.
+        if (scale == 1) { newLeft = Math.Floor(newLeft); newTop = Math.Floor(newTop); }
+        new TransformLayerOp(new TransformLayerParams
+        {
+            OffsetX = newLeft - left, OffsetY = newTop - top, ScaleX = scale, ScaleY = scale,
+            PivotX = left, PivotY = top, Interpolation = p.Interpolation
+        }).Apply(surface);
+    }
+}

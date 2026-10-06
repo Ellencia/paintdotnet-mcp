@@ -164,6 +164,22 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
         }, ct))?.ToString() ?? "{}";
 
     [McpServerTool, Description(
+        "Align the active layer's visible content (bounding box of pixels with alpha > 0) inside a target box, " +
+        "so you don't compute offsets yourself. Target defaults to the whole canvas; pass targetX/Y/Width/Height together for another box. " +
+        "margin insets the target on every side (snap-to-margin). horizontal: left|center|right; vertical: top|middle|bottom; " +
+        "an omitted axis keeps its position unless fit is set, then it centers. fit: none (keep size), contain (scale to fit inside), " +
+        "cover (scale to fill, overflow clipped); scaling is uniform. Large bilinear upscales feather edges about scale/2 px past the target (and margin); use interpolation=nearest for hard edges. Fully opaque layers (e.g. a background photo) already fill the canvas, so nothing moves. " +
+        "Rasterizes editable text: for text layers prefer update_text_layer x/y. Same queue, selection clipping, batch and Undo rules as transform_layer.")]
+    public async Task<string> AlignLayer(string? horizontal = null, string? vertical = null, string fit = "none", int margin = 0,
+        int? targetX = null, int? targetY = null, int? targetWidth = null, int? targetHeight = null,
+        string interpolation = "bilinear", CancellationToken ct = default)
+        => (await bridge.CallAsync("align_layer", new AlignLayerParams
+        {
+            Horizontal = horizontal, Vertical = vertical, Fit = fit, Margin = margin, TargetX = targetX, TargetY = targetY,
+            TargetWidth = targetWidth, TargetHeight = targetHeight, Interpolation = interpolation
+        }, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description(
         "Open an existing image or .pdn document by absolute local path in Paint.NET and activate it. " +
         "Uses Paint.NET's native file loader and immediately prepares the read/save snapshot. " +
         "Existing edited documents remain open. Finish any active batch or pending drawing first. " +
