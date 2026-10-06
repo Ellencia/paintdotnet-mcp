@@ -221,6 +221,7 @@ internal static class LayerOps
                     .GetMethod("ApplyFunction", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!
                     .Invoke(null, [workspace, function])!.ToString();
                 if (result != "Success") throw new InvalidOperationException("Paint.NET " + typeName + " returned " + result + ".");
+                if (p.Function == "duplicate" && document.Layers[index + 1] is BitmapLayer copy) TextLayers.RenewId(copy);
             }
             return new { Ok = true, Function = p.Function, LayerIndex = index,
                 LayerCount = ((Document)NativeEditing.Property(workspace, "Document")).Layers.Count,

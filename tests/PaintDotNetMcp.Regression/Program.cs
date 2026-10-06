@@ -25,6 +25,7 @@ static async Task Run()
     await CheckVersionGuard();
     CheckLayerTransforms();
     CheckComposite();
+    CheckTextIdRenewal();
     TextEditorChecks.Run();
     var server = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.BridgeServer")!;
     var dispatch = server.GetMethod("Dispatch", BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -362,6 +363,25 @@ static void CheckComposite()
         Console.WriteLine("PASS native composition respects alpha, opacity, visibility, Multiply blend mode and source layers");
     }
     finally { cache.Clear(); }
+}
+
+static void CheckTextIdRenewal()
+{
+    var textLayers = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.TextLayers")!;
+    void Renew(BitmapLayer layer) => textLayers.GetMethod("RenewId")!.Invoke(null, [layer]);
+    using var text = new BitmapLayer(4, 4);
+    var definition = new { SchemaVersion = 1, Id = "source", Parameters = new DrawTextParams { Text = "A" }, Width = 4, Height = 4, PixelHash = "h" };
+    text.Metadata.SetUserValue("PaintDotNetMcp.Text.v1", JsonSerializer.Serialize(definition));
+    Renew(text);
+    using var stored = JsonDocument.Parse(text.Metadata.GetUserValue("PaintDotNetMcp.Text.v1")!);
+    var root = stored.RootElement;
+    if (root.GetProperty("Id").GetString() is not { Length: 32 } id || id == "source") throw new Exception("Duplicated text layer must get a new Id");
+    if (root.GetProperty("Parameters").GetProperty("Text").GetString() != "A" || root.GetProperty("PixelHash").GetString() != "h")
+        throw new Exception("Id renewal must keep the text definition");
+    using var plain = new BitmapLayer(4, 4);
+    Renew(plain);
+    if (plain.Metadata.GetUserValue("PaintDotNetMcp.Text.v1") is not null) throw new Exception("Plain layers must stay without text metadata");
+    Console.WriteLine("PASS duplicated text layer gets its own Id and keeps its definition");
 }
 
 static void CheckLayerTransforms()

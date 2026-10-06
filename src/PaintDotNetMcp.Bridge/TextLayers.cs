@@ -111,6 +111,14 @@ internal static class TextLayers
         catch { layer.Dispose(); throw; }
     }
 
+    // A cloned text layer carries its source's Id; give the copy its own.
+    public static void RenewId(BitmapLayer layer)
+    {
+        if (Read(layer) is not { } definition) return;
+        definition.Id = Guid.NewGuid().ToString("N");
+        layer.Metadata.SetUserValue(MetadataKey, JsonSerializer.Serialize(definition));
+    }
+
     private static Definition? Read(BitmapLayer layer)
     {
         var json = layer.Metadata.GetUserValue(MetadataKey);
