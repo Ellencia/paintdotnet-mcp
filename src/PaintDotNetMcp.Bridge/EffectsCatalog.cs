@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using PaintDotNet;
 using PaintDotNet.Effects;
+using PaintDotNet.Imaging;
 using PaintDotNet.PropertySystem;
 
 namespace PaintDotNetMcp.Bridge;
@@ -16,7 +17,7 @@ namespace PaintDotNetMcp.Bridge;
 //      which opens the effect's dialog for a human to confirm.
 //
 // Limitations:
-//   - Only bool/int/double/string and list-choice properties can be set; vectors, colors, etc. keep defaults.
+//   - bool/int/double/string, list-choice, color ("#RRGGBB[AA]") and vector ([x, y]) properties can be set.
 //   - The reflection path is best-effort. If Paint.NET 5 moves the runner method, the call
 //     returns a `note` listing the methods it inspected.
 internal static class EffectsCatalog
@@ -122,7 +123,30 @@ internal static class EffectsCatalog
         finally { (effect as IDisposable)?.Dispose(); }
     }
 
-    private static object? Show(object? v) => v is null or bool or int or double or string ? v : v.ToString();
+    private static object? Show(object? v) => v switch
+    {
+        null or bool or int or double or string => v,
+        ManagedColor c when (System.Drawing.Color)c.GetSrgb() is var x => $"#{x.R:X2}{x.G:X2}{x.B:X2}{x.A:X2}",
+        Pair<double, double> d => new[] { d.First, d.Second },
+        _ => v.ToString()
+    };
+
+    private static string Text(object? v) => (v as double[] ?? Show(v)) is double[] xy ? "[" + string.Join(", ", xy) + "]" : Show(v) + "";
+
+    // "#RRGGBB" or "#RRGGBBAA", sRGB like every other color in this MCP.
+    private static ManagedColor ParseColor(string? s)
+    {
+        if (s is not ['#', ..] || (s.Length != 7 && s.Length != 9) || !uint.TryParse(s[1..], System.Globalization.NumberStyles.HexNumber, null, out var n))
+            throw new FormatException();
+        if (s.Length == 7) n = n << 8 | 0xFF;
+        return ManagedColor.Create((SrgbColorA)System.Drawing.Color.FromArgb((int)(n & 0xFF), (int)(n >> 24), (int)(n >> 16 & 0xFF), (int)(n >> 8 & 0xFF)));
+    }
+
+    // Scalars expose MinValue/MaxValue; vectors MinValueX/MinValueY (their MinValues is ambiguous via reflection).
+    private static object? Bound(Property p, string which) =>
+        p.GetType().GetProperty(which + "ValueX") is { } x
+            ? new[] { (double)x.GetValue(p)!, (double)p.GetType().GetProperty(which + "ValueY")!.GetValue(p)! }
+            : Show(p.GetType().GetProperty(which + "Value")?.GetValue(p));
 
     private static object Describe(Property p) => new
     {
@@ -130,8 +154,8 @@ internal static class EffectsCatalog
         Kind = p.GetType().Name,
         Value = Show(p.Value),
         p.ReadOnly,
-        Min = Show(p.GetType().GetProperty("MinValue")?.GetValue(p)),
-        Max = Show(p.GetType().GetProperty("MaxValue")?.GetValue(p)),
+        Min = Bound(p, "Min"),
+        Max = Bound(p, "Max"),
         Choices = (p.GetType().GetProperty("ValueChoices")?.GetValue(p) as System.Collections.IEnumerable)?.Cast<object>().Select(Show).ToList(),
     };
 
@@ -156,6 +180,8 @@ internal static class EffectsCatalog
                 : p.ValueType == typeof(int) ? v.GetInt32()
                 : p.ValueType == typeof(double) ? v.GetDouble()
                 : p.ValueType == typeof(string) ? v.GetString()!
+                : p.ValueType == typeof(ManagedColor) ? ParseColor(v.GetString())
+                : p.ValueType == typeof(Pair<double, double>) && v.GetArrayLength() == 2 ? Pair.Create(v[0].GetDouble(), v[1].GetDouble())
                 : throw new ArgumentException(p.Name + " (" + p.ValueType.Name + ") cannot be set from MCP.");
         }
         catch (Exception ex) when (ex is InvalidOperationException or FormatException)
@@ -163,10 +189,10 @@ internal static class EffectsCatalog
             throw new ArgumentException(p.Name + " needs a " + p.ValueType.Name + " value, got " + v.GetRawText() + ".");
         }
         p.Value = value;
-        // Scalar properties clamp silently (Radius 999 → 200); reject instead of running a different effect.
-        if (!Equals(p.Value, value))
-            throw new ArgumentException(p.Name + " " + Show(value) + " is out of range " +
-                Show(p.GetType().GetProperty("MinValue")?.GetValue(p)) + ".." + Show(p.GetType().GetProperty("MaxValue")?.GetValue(p)) + ".");
+        // Scalar properties clamp silently (Radius 999 → 200) and vectors not at all; reject instead of running a different effect.
+        if (!Equals(p.Value, value) || (value is Pair<double, double> v2 && Bound(p, "Min") is double[] lo && Bound(p, "Max") is double[] hi
+                && (v2.First < lo[0] || v2.Second < lo[1] || v2.First > hi[0] || v2.Second > hi[1])))
+            throw new ArgumentException(p.Name + " " + Text(value) + " is out of range " + Text(Bound(p, "Min")) + ".." + Text(Bound(p, "Max")) + ".");
     }
 
     /// <summary>

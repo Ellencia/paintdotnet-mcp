@@ -74,6 +74,10 @@ static async Task Run()
     Check(RejectsFn(new() { Function = "rotate" }, "merge_down"), "Unknown layer function rejected");
     Check(RejectsFn(new() { Function = "duplicate", LayerIndex = -2 }, "index"), "Invalid layer function index rejected");
     Check(RejectsFn(new() { Function = "move" }, "toIndex"), "Move without destination rejected");
+    bool RejectsArr(ArrangeLayersParams p, string text) => Call("arrange_layers", p) is { Ok: false } r && r.Error!.Contains(text);
+    Check(RejectsArr(new(), "distinct") && RejectsArr(new() { LayerIndices = [1, 1], Horizontal = "left" }, "distinct")
+        && RejectsArr(new() { LayerIndices = [0, 1], Distribute = "horizontal", Horizontal = "left" }, "other one")
+        && RejectsArr(new() { LayerIndices = [0] }, "Specify") && RejectsArr(new() { LayerIndices = [0], Distribute = "vertical" }, "two layers"), "Invalid arrange_layers rejected");
     Console.WriteLine("PASS layer function input validation");
     // Paint.NET loads Effects.Legacy at startup; this host must touch it (a bare typeof is not enough).
     Check(typeof(PaintDotNet.Effects.GaussianBlurEffect).Assembly.GetName().Name == "PaintDotNet.Effects.Legacy", "Legacy effects loaded");
@@ -94,6 +98,8 @@ static async Task Run()
     Check(RejectsFx(new { Radius = 999 }, "out of range 0..200"), "Out-of-range effect value rejected instead of clamped");
     Check(RejectsFx(new { Radios = 3 }, "known: Radius"), "Unknown effect property rejected");
     Check(RejectsFx(new { Radius = "big" }, "Radius"), "Wrong effect value type rejected");
+    var bulge = Call("apply_effect", new { Name = "BulgeEffect", Properties = new { Offset = new[] { 5.0, 0 } } });
+    Check(!bulge.Ok && bulge.Error!.Contains("[-1, -1]..[1, 1]"), "Out-of-range vector rejected (Paint.NET does not clamp vectors): " + bulge.Error);
     Console.WriteLine("PASS effect property discovery and value validation");
     var cropMethod = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.ImageIO")!.GetMethod("ImageCrop")!;
     var clippedCrop = (Rectangle)cropMethod.Invoke(null, [640, 320, -10, -20, 50, 60])!;
@@ -135,7 +141,7 @@ static async Task Run()
         Check(!Call("copy_selection_to_layer").Ok && !Call("crop_to_selection").Ok && !Call("resize_canvas", new ResizeCanvasParams { Width = 20, Height = 20 }).Ok, "Layer and canvas edits rejected during batch");
         Check(!Call("create_text_layer", new CreateTextLayerParams { Text = new() { Text = "Test" } }).Ok && !Call("update_text_layer").Ok, "Text layer edits rejected during batch");
         Check(!Call("set_layer_properties", new SetLayerPropertiesParams { Visible = false }).Ok, "Layer property edits rejected during batch");
-        Check(!Call("layer_function", new LayerFunctionParams { Function = "duplicate" }).Ok, "Layer functions rejected during batch");
+        Check(!Call("layer_function", new LayerFunctionParams { Function = "duplicate" }).Ok && !Call("arrange_layers", new ArrangeLayersParams { LayerIndices = [0], Horizontal = "left" }).Ok, "Layer functions rejected during batch");
         Check(!Call("undo").Ok && !Call("redo").Ok, "History changes rejected during batch");
         Check(!Call("commit").Ok && !Call("set_auto_commit", new SetAutoCommitParams { Enabled = true }).Ok, "Batch cannot be split by commit or auto-commit");
         historyApp.ActiveDocumentWorkspace = new TestHistoryWorkspace(new TestHistoryLayer(historySurface));

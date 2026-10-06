@@ -169,7 +169,7 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
         "margin insets the target on every side (snap-to-margin). horizontal: left|center|right; vertical: top|middle|bottom; " +
         "an omitted axis keeps its position unless fit is set, then it centers. fit: none (keep size), contain (scale to fit inside), " +
         "cover (scale to fill, overflow clipped); scaling is uniform. Large bilinear upscales feather edges about scale/2 px past the target (and margin); use interpolation=nearest for hard edges. Fully opaque layers (e.g. a background photo) already fill the canvas, so nothing moves. " +
-        "Rasterizes editable text: for text layers prefer update_text_layer x/y. Same queue, selection clipping, batch and Undo rules as transform_layer.")]
+        "Rasterizes editable text: for text layers prefer arrange_layers. Same queue, selection clipping, batch and Undo rules as transform_layer.")]
     public async Task<string> AlignLayer(string? horizontal = null, string? vertical = null, string fit = "none", int margin = 0,
         int? targetX = null, int? targetY = null, int? targetWidth = null, int? targetHeight = null,
         string interpolation = "bilinear", CancellationToken ct = default)
@@ -731,6 +731,21 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     public Task<string> FlattenImage(CancellationToken ct = default)
         => LayerFunction("flatten", -1, -1, ct);
 
+    [McpServerTool, Description(
+        "Align and/or evenly distribute whole layers by their visible bounds (pixels with alpha > 0), as one native Undo step. " +
+        "layerIndices lists the layers (0 = bottom). relativeTo: canvas (inset by margin) or layers (their combined bounds). " +
+        "horizontal: left|center|right; vertical: top|middle|bottom; distribute: horizontal|vertical spaces neighbours equally " +
+        "in their current order, outer layers touching the box edges; combine distribute with alignment on the other axis. " +
+        "Moves by whole pixels without scaling or selection clipping. MCP text layers stay editable (their x/y are updated); " +
+        "pixels pushed off the canvas of other layers are lost. Finish pending drawing or a batch first.")]
+    public async Task<string> ArrangeLayers(int[] layerIndices, string? horizontal = null, string? vertical = null,
+        string? distribute = null, string relativeTo = "canvas", int margin = 0, CancellationToken ct = default)
+        => (await bridge.CallAsync("arrange_layers", new ArrangeLayersParams
+        {
+            LayerIndices = layerIndices, Horizontal = horizontal, Vertical = vertical, Distribute = distribute,
+            RelativeTo = relativeTo, Margin = margin
+        }, ct))?.ToString() ?? "{}";
+
     private async Task<string> LayerFunction(string function, int layerIndex, int toIndex, CancellationToken ct)
     {
         var res = await bridge.CallAsync("layer_function", new LayerFunctionParams
@@ -776,7 +791,8 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     [McpServerTool, Description(
         "Apply a built-in Paint.NET effect to the active layer, clipped to the selection, as one Undo step. " +
         "Property-based effects run without a dialog using defaults plus the given properties " +
-        "(bool/int/double/string, or a list setting by its Choice text). Curves and Levels open their dialog instead.")]
+        "(bool/int/double/string, a list setting by its Choice text, a color as \"#RRGGBB\" or \"#RRGGBBAA\" sRGB, " +
+        "a vector as [x, y]). Curves and Levels open their dialog instead.")]
     public async Task<string> ApplyEffect(
         [Description("Effect name from list_effects.")] string name,
         [Description("Optional settings, e.g. {\"Radius\": 8}; names from get_effect_properties.")] Dictionary<string, JsonElement>? properties = null,
