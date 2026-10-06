@@ -182,4 +182,49 @@ internal static class LayerOps
                 BlendMode = layer.BlendMode.ToString(), HistorySteps = changed ? 1 : 0 };
         });
     }
+
+    // Paint.NET's own Layers-menu HistoryFunctions, applied the way the menu does: one native Undo step each.
+    public static object ApplyFunction(LayerFunctionParams p)
+    {
+        if (p.Function is not ("duplicate" or "move" or "merge_down" or "flatten"))
+            throw new ArgumentException("Function must be duplicate, move, merge_down, or flatten.");
+        if (p.LayerIndex < -1) throw new ArgumentException("Layer index must be -1 (active) or nonnegative.");
+        if (p.Function == "move" && p.ToIndex < 0) throw new ArgumentException("move requires a nonnegative toIndex.");
+        return NativeEditing.Run(workspace =>
+        {
+            var document = (Document)NativeEditing.Property(workspace, "Document");
+            int count = document.Layers.Count;
+            int index = p.LayerIndex == -1 ? (int)NativeEditing.Property(workspace, "ActiveLayerIndex") : p.LayerIndex;
+            if (index >= count || (p.Function == "move" && p.ToIndex >= count))
+                throw new ArgumentException("Layer index out of range (0.." + (count - 1) + ").");
+            if (p.Function == "merge_down" && index == 0) throw new ArgumentException("The bottom layer has no layer below to merge into.");
+            bool noop = (p.Function == "move" && p.ToIndex == index) || (p.Function == "flatten" && count == 1);
+            if (!noop)
+            {
+                object[] args = p.Function switch
+                {
+                    "move" => [index, p.ToIndex],
+                    "flatten" => [],
+                    _ => [index]
+                };
+                string typeName = p.Function switch
+                {
+                    "duplicate" => "DuplicateLayerFunction", "move" => "MoveLayerFunction",
+                    "merge_down" => "MergeLayerDownFunction", _ => "FlattenFunction"
+                };
+                // DuplicateLayerFunction clones ActiveLayer but inserts above layerIndex; the menu always passes the active index.
+                if (p.Function == "duplicate")
+                    workspace.GetType().GetProperty("ActiveLayerIndex")!.SetValue(workspace, index);
+                var function = Activator.CreateInstance(AppServices.FindType("PaintDotNet.HistoryFunctions." + typeName)!,
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, args, null)!;
+                var result = AppServices.FindType("PaintDotNet.Controls.DocumentWorkspaceExtensions")!
+                    .GetMethod("ApplyFunction", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!
+                    .Invoke(null, [workspace, function])!.ToString();
+                if (result != "Success") throw new InvalidOperationException("Paint.NET " + typeName + " returned " + result + ".");
+            }
+            return new { Ok = true, Function = p.Function, LayerIndex = index,
+                LayerCount = ((Document)NativeEditing.Property(workspace, "Document")).Layers.Count,
+                ActiveLayerIndex = (int)NativeEditing.Property(workspace, "ActiveLayerIndex"), HistorySteps = noop ? 0 : 1 };
+        });
+    }
 }

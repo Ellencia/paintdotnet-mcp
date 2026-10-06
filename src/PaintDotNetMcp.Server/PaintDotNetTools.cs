@@ -616,6 +616,37 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
         return res?.ToString() ?? "{}";
     }
 
+    [McpServerTool, Description(
+        "Duplicate a layer (layerIndex=-1 means active) directly above itself, including MCP text definitions. " +
+        "One native Undo step, same as Paint.NET's Layers > Duplicate Layer. Finish pending drawing or a batch first.")]
+    public Task<string> DuplicateLayer(int layerIndex = -1, CancellationToken ct = default)
+        => LayerFunction("duplicate", layerIndex, -1, ct);
+
+    [McpServerTool, Description(
+        "Move a layer from layerIndex (-1 = active) to toIndex. Index 0 is the bottom layer; higher indexes draw on top. " +
+        "One native Undo step (zero when the index is unchanged). Finish pending drawing or a batch first.")]
+    public Task<string> MoveLayer(int toIndex, int layerIndex = -1, CancellationToken ct = default)
+        => LayerFunction("move", layerIndex, toIndex, ct);
+
+    [McpServerTool, Description(
+        "Merge a layer (-1 = active) into the layer directly below it, like Paint.NET's Layers > Merge Layer Down. " +
+        "Fails on the bottom layer. A merged MCP text layer keeps its definition but update_text_layer will refuse to " +
+        "regenerate it unless replaceModifiedPixels=true. One native Undo step.")]
+    public Task<string> MergeLayerDown(int layerIndex = -1, CancellationToken ct = default)
+        => LayerFunction("merge_down", layerIndex, -1, ct);
+
+    [McpServerTool, Description(
+        "Flatten all layers into one, like Paint.NET's Image > Flatten. One native Undo step (zero with a single layer).")]
+    public Task<string> FlattenImage(CancellationToken ct = default)
+        => LayerFunction("flatten", -1, -1, ct);
+
+    private async Task<string> LayerFunction(string function, int layerIndex, int toIndex, CancellationToken ct)
+    {
+        var res = await bridge.CallAsync("layer_function", new LayerFunctionParams
+            { Function = function, LayerIndex = layerIndex, ToIndex = toIndex }, ct);
+        return res?.ToString() ?? "{}";
+    }
+
     // ---- v0.5 Save .pdn -----------------------------------------------------
 
     [McpServerTool, Description(
