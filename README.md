@@ -472,6 +472,8 @@ Bridge의 파이프 서버는 플러그인 검색 중 생성자가 호출될 때
 
 0.5.32는 `list_effects`의 카테고리를 효과 메뉴와 같은 출처(Paint.NET의 `EffectInfo`)에서 읽고, 메뉴에 표시되지 않는 `DoNotDisplay` 효과(레거시 CPU 효과, `RotateZoomGpuEffect`)를 목록에서 뺍니다. 뺀 효과도 이름으로 `apply_effect`·`get_effect_properties`를 호출할 수 있습니다. 실제 Paint.NET 5.1.12에서 목록이 55개(Adjustment 14, Effect 41)이고 `Unknown`·`DoNotDisplay`가 없음을 확인했습니다. 레거시 `LevelsEffect`·`InkSketchEffect`는 `DoNotDisplay`가 붙어 있지 않아 GPU 판과 함께 남습니다. 회귀 검증 25개가 통과했습니다.
 
+0.5.33은 그 두 개도 숨깁니다. Paint.NET은 레거시 어셈블리(`PaintDotNet.Effects.Legacy`)를 효과 메뉴에 등록하지 않고, 메뉴의 Levels·Ink Sketch는 GPU 판입니다. 실제 Paint.NET 5.1.12에서 목록이 53개(Adjustment 13, Effect 40)이고 레거시 어셈블리 효과가 없음을 확인했습니다. 회귀 검증 25개가 통과했습니다.
+
 Paint.NET과 .NET 9 SDK가 설치된 Windows에서 실행합니다. 테스트는 별도 파이프를 사용합니다. 설치된 Paint.NET DLL과 시스템 런타임의 사전 컴파일 코드 차이를 피하기 위해 ReadyToRun을 끕니다.
 
 ```powershell

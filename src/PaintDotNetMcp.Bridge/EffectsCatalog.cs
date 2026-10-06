@@ -73,6 +73,9 @@ internal static class EffectsCatalog
             catch { }
             // Same filter as EffectMenuBase.AddEffectsToMenu: the Legacy CPU effects are DoNotDisplay. They stay callable by name.
             if (cat == nameof(EffectCategory.DoNotDisplay)) continue;
+            // LevelsEffect/InkSketchEffect lack DoNotDisplay, but EffectsCollection never registers the Legacy assembly
+            // (its GPU twins are the menu items).
+            if (t.Assembly.GetName().Name == "PaintDotNet.Effects.Legacy") continue;
             result.Add(new EffectEntry(
                 Name: t.Name,
                 FullName: t.FullName ?? t.Name,
