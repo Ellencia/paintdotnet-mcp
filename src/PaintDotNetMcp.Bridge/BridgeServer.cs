@@ -253,6 +253,7 @@ internal static class BridgeServer
                 "update_text_layer"  => Ok(req.Id, TextLayers.Update(req.Params?.Deserialize<UpdateTextLayerParams>() ?? new())),
                 "get_text_layer"     => Ok(req.Id, TextLayers.Get(req.Params?.Deserialize<TextLayerIndexParams>() ?? new())),
                 "list_text_layers"   => Ok(req.Id, TextLayers.List()),
+                "set_layer_properties" => Ok(req.Id, LayerOps.SetProperties(req.Params?.Deserialize<SetLayerPropertiesParams>() ?? new())),
                 "open_text_editor"   => Ok(req.Id, TextEditor.Open()),
                 "flood_fill"         => QueueOp<FloodFillParams>(req, p => new FloodFillOp(p)),
                 "gradient_fill"      => QueueOp<GradientFillParams>(req, p => new GradientFillOp(p)),

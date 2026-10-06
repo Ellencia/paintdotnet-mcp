@@ -1,5 +1,6 @@
 using System.Reflection;
 using PaintDotNet;
+using PaintDotNetMcp.Contracts;
 
 namespace PaintDotNetMcp.Bridge;
 
@@ -10,7 +11,7 @@ namespace PaintDotNetMcp.Bridge;
 // are unwrapped from TargetInvocationException so callers see the real error.
 internal static class LayerOps
 {
-    public sealed record LayerInfo(int Index, string Name, int Width, int Height, bool IsActive, bool IsVisible, double Opacity);
+    public sealed record LayerInfo(int Index, string Name, int Width, int Height, bool IsActive, bool IsVisible, double Opacity, string BlendMode);
     public sealed record OpResult(bool Ok, string Note, object? Data = null);
 
     public static OpResult List()
@@ -37,7 +38,8 @@ internal static class LayerOps
                 else if (op is double d) opacityRaw = d;
                 else if (op is float f) opacityRaw = f;
                 bool isActive = ReferenceEquals(layer, active);
-                list.Add(new LayerInfo(i, name, w, h, isActive, vis, opacityRaw));
+                string blend = AppServices.GetPropertyValue(layer, "BlendMode")?.ToString() ?? "Normal";
+                list.Add(new LayerInfo(i, name, w, h, isActive, vis, opacityRaw, blend));
             }
             catch { }
             i++;
@@ -142,5 +144,42 @@ internal static class LayerOps
         }, out var invokeNote);
         if (!ok && !string.IsNullOrEmpty(invokeNote)) note = "UI invoke failed: " + invokeNote + "; " + note;
         return new(ok, note);
+    }
+
+    // Same native memento as Paint.NET's Layer Properties dialog: captured before the change, one Undo step.
+    public static object SetProperties(SetLayerPropertiesParams p)
+    {
+        if (p.LayerIndex < -1) throw new ArgumentException("Layer index must be -1 (active) or nonnegative.");
+        if (p.Name is not null && (string.IsNullOrWhiteSpace(p.Name) || p.Name.Length > 256))
+            throw new ArgumentException("Layer name must contain 1..256 characters.");
+        if (p.Opacity is double o && !(o >= 0 && o <= 1)) throw new ArgumentException("Opacity must be 0..1.");
+        LayerBlendMode? blend = null;
+        if (p.BlendMode is not null)
+        {
+            if (!Enum.TryParse(p.BlendMode, true, out LayerBlendMode parsed) || !Enum.IsDefined(parsed) || char.IsDigit(p.BlendMode.TrimStart()[0]))
+                throw new ArgumentException("BlendMode must be one of: " + string.Join(", ", Enum.GetNames<LayerBlendMode>()) + ".");
+            blend = parsed;
+        }
+        byte? opacity = p.Opacity is double v ? (byte)Math.Round(v * 255) : null;
+        return NativeEditing.Run(workspace =>
+        {
+            var document = (Document)NativeEditing.Property(workspace, "Document");
+            int index = p.LayerIndex == -1 ? (int)NativeEditing.Property(workspace, "ActiveLayerIndex") : p.LayerIndex;
+            if (index >= document.Layers.Count) throw new ArgumentException("Layer index out of range (0.." + (document.Layers.Count - 1) + ").");
+            var layer = document.Layers[index];
+            bool changed = (p.Name is not null && p.Name != layer.Name) || (p.Visible is bool vis && vis != layer.Visible)
+                || (opacity is byte op && op != layer.Opacity) || (blend is LayerBlendMode bm && bm != layer.BlendMode);
+            if (changed)
+            {
+                var history = NativeEditing.Memento("LayerPropertyHistoryMemento", "MCP layer properties", workspace, index);
+                if (p.Name is not null) layer.Name = p.Name;
+                if (p.Visible is bool visible) layer.Visible = visible;
+                if (opacity is byte opa) layer.Opacity = opa;
+                if (blend is LayerBlendMode mode) layer.BlendMode = mode;
+                NativeEditing.Push(workspace, history);
+            }
+            return new { Ok = true, LayerIndex = index, layer.Name, layer.Visible, Opacity = layer.Opacity / 255.0,
+                BlendMode = layer.BlendMode.ToString(), HistorySteps = changed ? 1 : 0 };
+        });
     }
 }

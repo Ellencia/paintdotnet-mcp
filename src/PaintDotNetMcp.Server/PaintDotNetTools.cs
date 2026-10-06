@@ -571,7 +571,7 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     // ---- v0.5 Layer management (reflection) --------------------------------
 
     [McpServerTool, Description(
-        "List all layers in the active document with index, name, dimensions, visibility, " +
+        "List all layers in the active document with index, name, dimensions, visibility, opacity, blend mode, " +
         "and which one is active. Reflection-based; may return ok=false on unfamiliar Paint.NET builds.")]
     public async Task<string> ListLayers(CancellationToken ct = default)
     {
@@ -600,6 +600,19 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     public async Task<string> SelectLayer(int index, CancellationToken ct = default)
     {
         var res = await bridge.CallAsync("select_layer", new SelectLayerParams { Index = index }, ct);
+        return res?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description(
+        "Change a layer's name, visibility, opacity (0..1) and/or blend mode. Omitted properties are preserved; " +
+        "layerIndex=-1 means active layer. BlendMode: Normal, Multiply, Additive, ColorBurn, ColorDodge, Reflect, Glow, " +
+        "Overlay, Difference, Negation, Lighten, Darken, Screen, Xor. Pixels are untouched. One native Undo step " +
+        "(zero when nothing changes), same as Paint.NET's Layer Properties dialog. Finish pending drawing or a batch first.")]
+    public async Task<string> SetLayerProperties(int layerIndex = -1, string? name = null, bool? visible = null,
+        double? opacity = null, string? blendMode = null, CancellationToken ct = default)
+    {
+        var res = await bridge.CallAsync("set_layer_properties", new SetLayerPropertiesParams
+            { LayerIndex = layerIndex, Name = name, Visible = visible, Opacity = opacity, BlendMode = blendMode }, ct);
         return res?.ToString() ?? "{}";
     }
 
