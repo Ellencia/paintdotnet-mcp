@@ -245,22 +245,97 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
 
     [McpServerTool, Description(
         "Queue a rectangle draw on the active layer. Stroked by default; set fill=true for a filled box. " +
-        "Applies on the next render pass.")]
+        "cornerRadius > 0 rounds the corners. Applies on the next render pass.")]
     public async Task<string> DrawRectangle(
         int x, int y, int width, int height,
         byte r, byte g, byte b,
         byte a = 255,
         int thickness = 1,
         bool fill = false,
+        int cornerRadius = 0,
         CancellationToken ct = default)
     {
         var p = new DrawRectangleParams
         {
             X = x, Y = y, Width = width, Height = height,
             R = r, G = g, B = b, A = a,
-            Thickness = thickness, Fill = fill,
+            Thickness = thickness, Fill = fill, CornerRadius = cornerRadius,
         };
         var res = await bridge.CallAsync("draw_rect", p, ct);
+        return res?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description(
+        "Queue an arrow from (x1,y1) to (x2,y2) on the active layer; the filled head's tip lands exactly on (x2,y2). " +
+        "headSize is the head length in px (0 = max(10, thickness*4)). bothEnds=true adds a head at (x1,y1).")]
+    public async Task<string> DrawArrow(
+        int x1, int y1, int x2, int y2,
+        byte r, byte g, byte b,
+        byte a = 255,
+        int thickness = 3,
+        int headSize = 0,
+        bool bothEnds = false,
+        CancellationToken ct = default)
+    {
+        var p = new DrawArrowParams
+        {
+            X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, R = r, G = g, B = b, A = a,
+            Thickness = thickness, HeadSize = headSize, BothEnds = bothEnds,
+        };
+        var res = await bridge.CallAsync("draw_arrow", p, ct);
+        return res?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description(
+        "Queue a numbered marker: a filled circle centered at (x,y) with a bold label (1..8 chars, e.g. \"1\", \"A\", \"12\") " +
+        "visually centered inside. The font auto-sizes to the radius (4..256). Default red circle, white label.")]
+    public async Task<string> DrawMarker(
+        int x, int y,
+        string label,
+        int radius = 16,
+        byte r = 220, byte g = 30, byte b = 30,
+        byte a = 255,
+        byte textR = 255, byte textG = 255, byte textB = 255,
+        string fontFamily = "Segoe UI",
+        CancellationToken ct = default)
+    {
+        var p = new DrawMarkerParams
+        {
+            X = x, Y = y, Label = label, Radius = radius, R = r, G = g, B = b, A = a,
+            TextR = textR, TextG = textG, TextB = textB, FontFamily = fontFamily,
+        };
+        var res = await bridge.CallAsync("draw_marker", p, ct);
+        return res?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description(
+        "Queue a callout: a rounded box whose top-left is (x,y), auto-sized to the text plus padding, with an optional " +
+        "leader arrow from the nearest box edge to (targetX,targetY). r/g/b color the text, border and leader; bg* is the box fill. " +
+        "The response's info.box gives the computed box so further callouts can be placed without overlap. " +
+        "Pixels, not an editable text layer.")]
+    public async Task<string> DrawCallout(
+        int x, int y,
+        string text,
+        byte r = 0, byte g = 0, byte b = 0,
+        byte bgR = 255, byte bgG = 255, byte bgB = 255, byte bgA = 255,
+        float fontSize = 16f,
+        string fontFamily = "Segoe UI",
+        bool bold = false,
+        int borderThickness = 2,
+        int padding = 8,
+        int cornerRadius = 6,
+        int? targetX = null, int? targetY = null,
+        CancellationToken ct = default)
+    {
+        var p = new DrawCalloutParams
+        {
+            X = x, Y = y, Text = text, R = r, G = g, B = b,
+            BgR = bgR, BgG = bgG, BgB = bgB, BgA = bgA,
+            FontSize = fontSize, FontFamily = fontFamily, Bold = bold,
+            BorderThickness = borderThickness, Padding = padding, CornerRadius = cornerRadius,
+            TargetX = targetX, TargetY = targetY,
+        };
+        var res = await bridge.CallAsync("draw_callout", p, ct);
         return res?.ToString() ?? "{}";
     }
 

@@ -25,6 +25,7 @@ static async Task Run()
     await CheckVersionGuard();
     CheckLayerTransforms();
     CheckComposite();
+    CheckAnnotations();
     CheckTextIdRenewal();
     TextEditorChecks.Run();
     var server = typeof(BridgeEffect).Assembly.GetType("PaintDotNetMcp.Bridge.BridgeServer")!;
@@ -55,6 +56,8 @@ static async Task Run()
         Check(!Call("draw_text", new DrawTextParams { Text = "Test", FontSize = size }).Ok, "Invalid text size rejected before queueing");
     Check(!Call("draw_text", new DrawTextParams { Text = " " }).Ok, "Empty text rejected");
     Check(!Call("draw_text", new DrawTextParams { Text = "Test", FontFamily = "MCP Nonexistent Font 5723" }).Ok, "Missing font rejected instead of silently substituting");
+    Check(!Call("draw_marker", new DrawMarkerParams { Label = " " }).Ok && !Call("draw_marker", new DrawMarkerParams { Radius = 2 }).Ok, "Invalid marker rejected");
+    Check(!Call("draw_callout", new DrawCalloutParams { Text = "A", TargetX = 5 }).Ok && !Call("draw_callout", new DrawCalloutParams { Text = " " }).Ok, "Invalid callout rejected");
     Check((int)server.GetProperty("PendingCount")!.GetValue(null)! == 0, "Invalid editing inputs leave no pending operations");
     Console.WriteLine("PASS canvas editing and text validation reject invalid input without pending mutations");
     Check(!Call("create_text_layer", new CreateTextLayerParams { Text = new() { Text = " " } }).Ok, "Invalid managed text rejected");
@@ -382,6 +385,48 @@ static void CheckTextIdRenewal()
     Renew(plain);
     if (plain.Metadata.GetUserValue("PaintDotNetMcp.Text.v1") is not null) throw new Exception("Plain layers must stay without text metadata");
     Console.WriteLine("PASS duplicated text layer gets its own Id and keeps its definition");
+}
+
+static void CheckAnnotations()
+{
+    var asm = typeof(BridgeEffect).Assembly;
+    object Op(string name, object parameters) => Activator.CreateInstance(asm.GetType("PaintDotNetMcp.Bridge." + name)!, parameters)!;
+    void Apply(object op, Surface surface) => op.GetType().GetMethod("Apply")!.Invoke(op, [surface]);
+    static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
+    var clear = ColorBgra.FromBgra(0, 0, 0, 0);
+
+    using var surface = new Surface(300, 200);
+    surface.Fill(clear);
+    Apply(Op("DrawRectOp", new DrawRectangleParams { X = 10, Y = 10, Width = 40, Height = 30, R = 255, Fill = true, CornerRadius = 8 }), surface);
+    Check(surface[10, 10].A == 0 && surface[30, 25].A == 255 && surface[10, 25].A == 255, "Rounded rectangle clips corners only");
+
+    surface.Fill(clear);
+    Apply(Op("DrawArrowOp", new DrawArrowParams { X1 = 20, Y1 = 60, X2 = 180, Y2 = 60, R = 255 }), surface);
+    Check(surface[180, 60].A == 255 && surface[183, 60].A == 0, "Arrow tip lands on the target");
+    Check(surface[171, 57].A == 255 && surface[100, 57].A == 0 && surface[100, 60].A == 255, "Arrow head is wider than its shaft");
+    surface.Fill(clear);
+    Apply(Op("DrawArrowOp", new DrawArrowParams { X1 = 20, Y1 = 60, X2 = 180, Y2 = 60, R = 255, BothEnds = true }), surface);
+    Check(surface[20, 60].A == 255 && surface[28, 57].A == 255 && surface[171, 57].A == 255, "Double-headed arrow");
+
+    surface.Fill(clear);
+    Apply(Op("DrawMarkerOp", new DrawMarkerParams { X = 50, Y = 50, Label = "1", Radius = 16 }), surface);
+    Check(surface[64, 50].R == 220 && surface[68, 50].A == 0, "Marker circle has the requested radius");
+    int minX = 999, minY = 999, maxX = -1, maxY = -1;
+    for (int y = 30; y < 70; y++)
+        for (int x = 30; x < 70; x++)
+            if (surface[x, y].G > 200) { minX = Math.Min(minX, x); maxX = Math.Max(maxX, x); minY = Math.Min(minY, y); maxY = Math.Max(maxY, y); }
+    Check(maxX >= 0 && Math.Abs((minX + maxX) / 2.0 - 50) <= 2 && Math.Abs((minY + maxY) / 2.0 - 50) <= 2, "Marker label is visually centered");
+
+    surface.Fill(clear);
+    var callout = Op("DrawCalloutOp", new DrawCalloutParams { X = 20, Y = 20, Text = "SPD", TargetX = 250, TargetY = 150 });
+    Apply(callout, surface);
+    var box = JsonSerializer.SerializeToElement(callout.GetType().GetProperty("Info")!.GetValue(callout)).GetProperty("box");
+    int bw = box.GetProperty("width").GetInt32(), bh = box.GetProperty("height").GetInt32();
+    Check(bw > 16 && bh > 16 && bw < 120 && bh < 60, "Callout box fits its text plus padding");
+    Check(surface[20, 20].A == 0 && surface[30, 20] == ColorBgra.FromBgra(0, 0, 0, 255), "Callout box has rounded corners and a border");
+    Check(surface[23, 20 + bh / 2] == ColorBgra.FromBgra(255, 255, 255, 255), "Callout box is filled");
+    Check(surface[250, 150].A == 255 && surface[250, 30].A == 0, "Callout leader reaches the target");
+    Console.WriteLine("PASS annotation primitives: rounded rectangle, arrow, marker, callout");
 }
 
 static void CheckLayerTransforms()

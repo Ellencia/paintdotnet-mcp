@@ -17,7 +17,7 @@ namespace PaintDotNetMcp.Contracts;
 
 public static class PipeNames
 {
-    public const string BridgeVersion = "0.5.28";
+    public const string BridgeVersion = "0.5.29";
     public const string Default = "PaintDotNetMcp.Bridge.v1";
     // Allow regression processes to use an isolated pipe without touching a live canvas.
     public static string Current => Environment.GetEnvironmentVariable("PAINTDOTNET_MCP_PIPE_NAME") ?? Default;
@@ -148,6 +148,65 @@ public sealed class DrawRectangleParams
     public byte A { get; set; } = 255;
     public int Thickness { get; set; } = 1;
     public bool Fill { get; set; }
+    public int CornerRadius { get; set; }
+}
+
+public sealed class DrawArrowParams
+{
+    public int X1 { get; set; }
+    public int Y1 { get; set; }
+    public int X2 { get; set; }
+    public int Y2 { get; set; }
+    public byte R { get; set; }
+    public byte G { get; set; }
+    public byte B { get; set; }
+    public byte A { get; set; } = 255;
+    public int Thickness { get; set; } = 3;
+    /// <summary>Head length in px; 0 = max(10, thickness*4).</summary>
+    public int HeadSize { get; set; }
+    public bool BothEnds { get; set; }
+}
+
+public sealed class DrawMarkerParams
+{
+    /// <summary>Circle center.</summary>
+    public int X { get; set; }
+    public int Y { get; set; }
+    public string Label { get; set; } = "1";
+    public int Radius { get; set; } = 16;
+    public byte R { get; set; } = 220;
+    public byte G { get; set; } = 30;
+    public byte B { get; set; } = 30;
+    public byte A { get; set; } = 255;
+    public byte TextR { get; set; } = 255;
+    public byte TextG { get; set; } = 255;
+    public byte TextB { get; set; } = 255;
+    public string FontFamily { get; set; } = "Segoe UI";
+}
+
+public sealed class DrawCalloutParams
+{
+    /// <summary>Box top-left; the box auto-sizes to the text.</summary>
+    public int X { get; set; }
+    public int Y { get; set; }
+    public string Text { get; set; } = "";
+    public string FontFamily { get; set; } = "Segoe UI";
+    public float FontSize { get; set; } = 16f;
+    public bool Bold { get; set; }
+    /// <summary>Text, border and leader color.</summary>
+    public byte R { get; set; }
+    public byte G { get; set; }
+    public byte B { get; set; }
+    public byte BgR { get; set; } = 255;
+    public byte BgG { get; set; } = 255;
+    public byte BgB { get; set; } = 255;
+    public byte BgA { get; set; } = 255;
+    public int BorderThickness { get; set; } = 2;
+    public int Padding { get; set; } = 8;
+    public int CornerRadius { get; set; } = 6;
+    /// <summary>Optional leader target; an arrow runs from the box edge to here.</summary>
+    public int? TargetX { get; set; }
+    public int? TargetY { get; set; }
 }
 
 public sealed class DrawLineParams

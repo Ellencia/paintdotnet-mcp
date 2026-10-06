@@ -64,6 +64,76 @@ internal static class Drawing
             for (int yy = rect.Top; yy < rect.Bottom; yy++) SetPixel(s, xx, yy, c);
     }
 
+    public static void RoundedRect(Surface s, Rectangle r, int radius, int thickness, ColorBgra c, bool fill)
+    {
+        if (r.Width <= 0 || r.Height <= 0) return;
+        int rad = Math.Clamp(radius, 0, Math.Min(r.Width, r.Height) / 2);
+        int t = Math.Max(1, thickness);
+        var inner = Rectangle.Inflate(r, -t, -t);
+        int innerRad = Math.Max(0, rad - t);
+        var area = Rectangle.Intersect(r, s.Bounds);
+        for (int y = area.Top; y < area.Bottom; y++)
+            for (int x = area.Left; x < area.Right; x++)
+            {
+                if (!InsideRounded(r, rad, x, y)) continue;
+                if (!fill && inner.Width > 0 && inner.Height > 0 && InsideRounded(inner, innerRad, x, y)) continue;
+                SetPixel(s, x, y, c);
+            }
+    }
+
+    // Pixel-center test against a rectangle whose corners are quarter circles of radius rad.
+    private static bool InsideRounded(Rectangle r, int rad, int x, int y)
+    {
+        double px = x + 0.5, py = y + 0.5;
+        if (px < r.Left || px > r.Right || py < r.Top || py > r.Bottom) return false;
+        double cx = Math.Clamp(px, r.Left + rad, r.Right - rad);
+        double cy = Math.Clamp(py, r.Top + rad, r.Bottom - rad);
+        double dx = px - cx, dy = py - cy;
+        return dx * dx + dy * dy <= (double)rad * rad;
+    }
+
+    /// <summary>Line with a filled triangular head at (x2,y2), optionally also at (x1,y1).</summary>
+    public static void Arrow(Surface s, int x1, int y1, int x2, int y2, int thickness, int headSize, bool bothEnds, ColorBgra c)
+    {
+        double dx = x2 - x1, dy = y2 - y1, len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 1) return;
+        double ux = dx / len, uy = dy / len;
+        double head = headSize > 0 ? headSize : Math.Max(10, thickness * 4);
+        head = Math.Min(head, bothEnds ? len / 2 : len);
+        var start = bothEnds ? Head(s, x1, y1, -ux, -uy, head, c) : new Point(x1, y1);
+        var end = Head(s, x2, y2, ux, uy, head, c);
+        Line(s, start.X, start.Y, end.X, end.Y, thickness, c);
+    }
+
+    // Draws a head pointing along (ux,uy) with its tip at (tx,ty); returns the base center.
+    private static Point Head(Surface s, int tx, int ty, double ux, double uy, double head, ColorBgra c)
+    {
+        double bx = tx - ux * head, by = ty - uy * head, w = head * 0.5;
+        Polygon(s,
+        [
+            new Point(tx, ty),
+            new Point((int)Math.Round(bx - uy * w), (int)Math.Round(by + ux * w)),
+            new Point((int)Math.Round(bx + uy * w), (int)Math.Round(by - ux * w)),
+        ], 1, c, fill: true, closed: true);
+        return new Point((int)Math.Round(bx), (int)Math.Round(by));
+    }
+
+    /// <summary>Bounding box of non-transparent pixels in a BGRA buffer (Empty if none).</summary>
+    public static Rectangle InkBounds(byte[] bgra, int w, int h)
+    {
+        int minX = w, minY = h, maxX = -1, maxY = -1;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                if (bgra[(y * w + x) * 4 + 3] != 0)
+                {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+        return maxX < 0 ? Rectangle.Empty : Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
+    }
+
     public static void Line(Surface s, int x1, int y1, int x2, int y2, int thickness, ColorBgra c)
     {
         // Bresenham + thickness via small disc per step.

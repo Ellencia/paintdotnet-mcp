@@ -246,6 +246,9 @@ internal static class BridgeServer
                 "fill"               => QueueOp<FillParams>(req, p => new FillOp(p)),
                 "draw_rect"          => QueueOp<DrawRectangleParams>(req, p => new DrawRectOp(p)),
                 "draw_line"          => QueueOp<DrawLineParams>(req, p => new DrawLineOp(p)),
+                "draw_arrow"         => QueueOp<DrawArrowParams>(req, p => new DrawArrowOp(p)),
+                "draw_marker"        => QueueOp<DrawMarkerParams>(req, p => new DrawMarkerOp(p)),
+                "draw_callout"       => QueueOp<DrawCalloutParams>(req, p => new DrawCalloutOp(p)),
                 "draw_ellipse"       => QueueOp<DrawEllipseParams>(req, p => new DrawEllipseOp(p)),
                 "draw_polygon"       => QueueOp<DrawPolygonParams>(req, p => new DrawPolygonOp(p)),
                 "draw_text"          => QueueOp<DrawTextParams>(req, p => new DrawTextOp(p)),
@@ -304,7 +307,8 @@ internal static class BridgeServer
         if (req.Params is null) return Err(req.Id, "missing params");
         var p = req.Params.Value.Deserialize<TParams>()
             ?? throw new InvalidOperationException("could not deserialize params");
-        long revision = Enqueue(factory(p));
+        var op = factory(p);
+        long revision = Enqueue(op);
 
         bool autoTried = AutoCommit.TryTrigger(_lastEffect, out string note);
         return Ok(req.Id, new
@@ -316,6 +320,7 @@ internal static class BridgeServer
             auto_triggered = autoTried,
             auto_committed = false,
             commit_note = note,
+            info = op.Info,
         });
     }
 
