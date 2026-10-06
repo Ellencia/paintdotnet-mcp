@@ -470,6 +470,8 @@ Bridge의 파이프 서버는 플러그인 검색 중 생성자가 호출될 때
 
 0.5.31은 Paint.NET 효과 메뉴에 실제로 보이는 GPU 효과(`GaussianBlurGpuEffect`, `MorphologyGpuEffect` 등)를 `list_effects`·`get_effect_properties`·`apply_effect`에서 다룹니다. 이전 버전이 찾던 레거시 CPU 효과는 메뉴에 표시되지 않는 구현이며(`Category: DoNotDisplay`) 계속 목록에 남습니다. GPU 효과는 기본값을 앱 설정에서 읽으므로 Paint.NET의 기본 서비스와 환경으로 초기화한 뒤 설정 목록을 만듭니다. 실제 Paint.NET 5.1.12의 200×100 캔버스(x=100에서 흰색/검정 경계)에서 `GaussianBlurGpuEffect`가 앱 설정의 Quality 4를 기본값으로 보고하고, 위쪽 절반 선택에 `Radius: 20`을 적용해 선택 안쪽만 경계가 x=83–123에 걸쳐 번지는 것을 확인했습니다. `MorphologyGpuEffect`의 `Mode: Erode`/`Dilate`(Width·Height 10)는 경계를 각각 x=96과 x=105로 반대 방향으로 옮겨 목록형 설정이 반영되었습니다. 각 적용은 Undo 한 단계이며 Undo 후 해당 행이 적용 전과 바이트 단위로 같고, 범위 밖 값(`Radius: 999`, 범위 0..300)은 거부됩니다. GPU 효과 대부분은 카테고리가 `Unknown`으로 표시되고, 색 설정(`ManagedColorProperty`)은 여전히 지정할 수 없습니다. 회귀 검증 25개가 통과했습니다.
 
+0.5.32는 `list_effects`의 카테고리를 효과 메뉴와 같은 출처(Paint.NET의 `EffectInfo`)에서 읽고, 메뉴에 표시되지 않는 `DoNotDisplay` 효과(레거시 CPU 효과, `RotateZoomGpuEffect`)를 목록에서 뺍니다. 뺀 효과도 이름으로 `apply_effect`·`get_effect_properties`를 호출할 수 있습니다. 실제 Paint.NET 5.1.12에서 목록이 55개(Adjustment 14, Effect 41)이고 `Unknown`·`DoNotDisplay`가 없음을 확인했습니다. 레거시 `LevelsEffect`·`InkSketchEffect`는 `DoNotDisplay`가 붙어 있지 않아 GPU 판과 함께 남습니다. 회귀 검증 25개가 통과했습니다.
+
 Paint.NET과 .NET 9 SDK가 설치된 Windows에서 실행합니다. 테스트는 별도 파이프를 사용합니다. 설치된 Paint.NET DLL과 시스템 런타임의 사전 컴파일 코드 차이를 피하기 위해 ReadyToRun을 끕니다.
 
 ```powershell

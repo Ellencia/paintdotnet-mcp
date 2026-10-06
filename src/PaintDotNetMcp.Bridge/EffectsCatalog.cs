@@ -59,15 +59,20 @@ internal static class EffectsCatalog
     {
         var types = DiscoverEffectTypes();
         var result = new List<EffectEntry>(types.Count);
+        // The menu's own source: IEffect.GetEffectInfo() (internal) yields the category the Effects menu uses
+        // (GPU effects without an attribute default to Effect). It needs no services, unlike CreatePropertyCollection.
+        var getInfo = typeof(IEffect).GetMethod("GetEffectInfo", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance)!;
         foreach (var t in types)
         {
             string cat = "Unknown";
             try
             {
-                var attr = t.GetCustomAttribute<EffectCategoryAttribute>();
-                if (attr is not null) cat = attr.Category.ToString();
+                using var effect = (IEffect)Activator.CreateInstance(t, nonPublic: true)!;
+                cat = ((IEffectInfo2)getInfo.Invoke(effect, null)!).Category.ToString(); // cached per type by Paint.NET; not ours to dispose
             }
             catch { }
+            // Same filter as EffectMenuBase.AddEffectsToMenu: the Legacy CPU effects are DoNotDisplay. They stay callable by name.
+            if (cat == nameof(EffectCategory.DoNotDisplay)) continue;
             result.Add(new EffectEntry(
                 Name: t.Name,
                 FullName: t.FullName ?? t.Name,

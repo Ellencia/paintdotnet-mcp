@@ -81,6 +81,9 @@ static async Task Run()
     System.Reflection.Assembly.Load("PaintDotNet.Effects.Gpu");
     var effects = Call("list_effects", null);
     Check(effects.Ok && effects.Result!.Value.GetProperty("Effects").EnumerateArray().Any(e => e.GetProperty("Name").GetString() == "GaussianBlurGpuEffect"), "GPU effects listed: " + effects.Error);
+    var listed = effects.Result!.Value.GetProperty("Effects").EnumerateArray().ToDictionary(e => e.GetProperty("Name").GetString()!, e => e.GetProperty("Category").GetString());
+    Check(listed["GaussianBlurGpuEffect"] == "Effect" && listed.Values.Contains("Adjustment") && !listed.Values.Contains("Unknown"), "Effect categories come from EffectInfo");
+    Check(!listed.ContainsKey("GaussianBlurEffect") && !listed.ContainsKey("RotateZoomGpuEffect"), "DoNotDisplay effects hidden from list_effects");
     // This host has no Paint.NET settings service, which GPU defaults read; the real app supplies it.
     var gpuBlur = Call("get_effect_properties", new { Name = "GaussianBlurGpuEffect" });
     Check(!gpuBlur.Ok && gpuBlur.Error!.Contains("ISettingsService"), "GPU effect defaults reach Paint.NET services: " + gpuBlur.Error);
