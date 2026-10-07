@@ -74,6 +74,11 @@ static async Task Run()
     Check(RejectsFn(new() { Function = "rotate" }, "merge_down"), "Unknown layer function rejected");
     Check(RejectsFn(new() { Function = "duplicate", LayerIndex = -2 }, "index"), "Invalid layer function index rejected");
     Check(RejectsFn(new() { Function = "move" }, "toIndex"), "Move without destination rejected");
+    bool RejectsAnn(AnnotationParams p, string text) => Call("add_annotation", p) is { Ok: false } r && r.Error!.Contains(text);
+    Check(RejectsAnn(new() { Type = "circle" }, "callout, arrow or marker")
+        && RejectsAnn(new() { Type = "marker", Properties = new() { ["Lable"] = JsonDocument.Parse("\"1\"").RootElement } }, "known: X")
+        && RejectsAnn(new() { Type = "marker", From = "callout1" }, "arrows only") && RejectsAnn(new() { Type = "arrow", Target = "marker1" }, "callouts only"),
+        "Invalid annotations rejected");
     bool RejectsArr(ArrangeLayersParams p, string text) => Call("arrange_layers", p) is { Ok: false } r && r.Error!.Contains(text);
     Check(RejectsArr(new(), "distinct") && RejectsArr(new() { LayerIndices = [1, 1], Horizontal = "left" }, "distinct")
         && RejectsArr(new() { LayerIndices = [0, 1], Distribute = "horizontal", Horizontal = "left" }, "other one")
@@ -141,7 +146,8 @@ static async Task Run()
         Check(!Call("copy_selection_to_layer").Ok && !Call("crop_to_selection").Ok && !Call("resize_canvas", new ResizeCanvasParams { Width = 20, Height = 20 }).Ok, "Layer and canvas edits rejected during batch");
         Check(!Call("create_text_layer", new CreateTextLayerParams { Text = new() { Text = "Test" } }).Ok && !Call("update_text_layer").Ok, "Text layer edits rejected during batch");
         Check(!Call("set_layer_properties", new SetLayerPropertiesParams { Visible = false }).Ok, "Layer property edits rejected during batch");
-        Check(!Call("layer_function", new LayerFunctionParams { Function = "duplicate" }).Ok && !Call("arrange_layers", new ArrangeLayersParams { LayerIndices = [0], Horizontal = "left" }).Ok, "Layer functions rejected during batch");
+        Check(!Call("layer_function", new LayerFunctionParams { Function = "duplicate" }).Ok && !Call("arrange_layers", new ArrangeLayersParams { LayerIndices = [0], Horizontal = "left" }).Ok
+            && !Call("add_annotation", new AnnotationParams { Type = "marker" }).Ok, "Layer functions rejected during batch");
         Check(!Call("undo").Ok && !Call("redo").Ok, "History changes rejected during batch");
         Check(!Call("commit").Ok && !Call("set_auto_commit", new SetAutoCommitParams { Enabled = true }).Ok, "Batch cannot be split by commit or auto-commit");
         historyApp.ActiveDocumentWorkspace = new TestHistoryWorkspace(new TestHistoryLayer(historySurface));

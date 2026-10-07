@@ -746,6 +746,34 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
             RelativeTo = relativeTo, Margin = margin
         }, ct))?.ToString() ?? "{}";
 
+    [McpServerTool, Description(
+        "Add an editable annotation: type callout, arrow or marker, with the same properties as draw_callout/draw_arrow/draw_marker " +
+        "(e.g. {\"x\":40,\"y\":30,\"text\":\"AC 220V\"}; {\"x1\":0,\"y1\":0,\"x2\":90,\"y2\":60,\"r\":220,\"thickness\":6}; {\"x\":120,\"y\":80,\"label\":\"1\"}). " +
+        "Goes on the active layer if it is an annotation layer, otherwise on a new \"Annotations\" layer above it. " +
+        "Links: an arrow's from/to and a callout's target may name a marker or callout id on the same layer; the line then " +
+        "starts/ends at that shape's edge and follows it when it moves. Returns the id and every item's bounds. One native Undo step.")]
+    public async Task<string> AddAnnotation(string type, Dictionary<string, JsonElement>? properties = null,
+        string? from = null, string? to = null, string? target = null, bool replaceModifiedPixels = false, CancellationToken ct = default)
+        => (await bridge.CallAsync("add_annotation", new AnnotationParams
+            { Type = type, Properties = properties, From = from, To = to, Target = target, ReplaceModifiedPixels = replaceModifiedPixels }, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description(
+        "Change an annotation by id (see list_annotations): given properties replace stored ones, others stay; from/to/target " +
+        "relink (\"\" unlinks). The whole annotation layer is redrawn, so linked arrows and leaders follow. Rejects when the layer's " +
+        "pixels were edited by other tools unless replaceModifiedPixels=true (which discards those edits). One native Undo step.")]
+    public async Task<string> UpdateAnnotation(string id, Dictionary<string, JsonElement>? properties = null,
+        string? from = null, string? to = null, string? target = null, bool replaceModifiedPixels = false, CancellationToken ct = default)
+        => (await bridge.CallAsync("update_annotation", new AnnotationParams
+            { Id = id, Properties = properties, From = from, To = to, Target = target, ReplaceModifiedPixels = replaceModifiedPixels }, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description("Delete an annotation by id. Refuses while other annotations link to it. One native Undo step.")]
+    public async Task<string> DeleteAnnotation(string id, bool replaceModifiedPixels = false, CancellationToken ct = default)
+        => (await bridge.CallAsync("delete_annotation", new AnnotationParams { Id = id, ReplaceModifiedPixels = replaceModifiedPixels }, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description("List annotation layers with each item's id, type, stored properties, links and drawn bounds, and whether the layer's pixels were edited outside the annotation tools. No Undo history.")]
+    public async Task<string> ListAnnotations(CancellationToken ct = default)
+        => (await bridge.CallAsync("list_annotations", null, ct))?.ToString() ?? "{}";
+
     private async Task<string> LayerFunction(string function, int layerIndex, int toIndex, CancellationToken ct)
     {
         var res = await bridge.CallAsync("layer_function", new LayerFunctionParams

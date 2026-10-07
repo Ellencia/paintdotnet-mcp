@@ -104,6 +104,7 @@ internal sealed class DrawCalloutOp : PendingOp
         _box = new Rectangle(p.X, p.Y, _ink.Width + 2 * p.Padding, _ink.Height + 2 * p.Padding);
     }
 
+    public Rectangle Box => _box;
     public override object? Info => new { box = new { x = _box.X, y = _box.Y, width = _box.Width, height = _box.Height } };
 
     public override void Apply(Surface s)

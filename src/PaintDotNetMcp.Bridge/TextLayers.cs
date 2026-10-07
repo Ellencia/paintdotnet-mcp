@@ -257,7 +257,7 @@ internal static class TextLayers
 
     private static bool Modified(BitmapLayer layer, Definition definition) => layer.Width != definition.Width ||
         layer.Height != definition.Height || Hash(layer.Surface) != definition.PixelHash;
-    private static string Hash(Surface surface) => Convert.ToHexString(SHA256.HashData(ImageIO.ReadSurface(surface)));
+    internal static string Hash(Surface surface) => Convert.ToHexString(SHA256.HashData(ImageIO.ReadSurface(surface)));
 
     private static int ResolveIndex(object workspace, Document document, int requested)
     {
@@ -271,7 +271,7 @@ internal static class TextLayers
         if (string.IsNullOrWhiteSpace(name) || name.Length > 256) throw new ArgumentException("Layer name must contain 1..256 characters.");
     }
 
-    private static object Query(Func<object, object> read)
+    internal static object Query(Func<object, object> read)
     {
         if (HistoryOps.BatchActive) throw new InvalidOperationException("Finish the active batch before reading text layers.");
         AutoCommit.WaitForExecutionIdle(5000);
