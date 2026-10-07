@@ -792,35 +792,84 @@ internal static class BridgeServer
         // SAM looks at what the user sees (all visible layers), not just the active layer.
         var buf = ImageIO.ReadImageSource("composite", out int w, out int h);
 
-        // rembg's SAM prompt: points label 1 = object, 0 = background; a rectangle is [x1, y1, x2, y2].
-        var prompt = new List<object>();
-        foreach (var (pts, label) in new[] { (p.Include, 1), (p.Exclude, 0) })
-            foreach (var pt in pts)
-            {
-                if (pt.X < 0 || pt.Y < 0 || pt.X >= w || pt.Y >= h)
-                    throw new ArgumentException($"Point ({pt.X},{pt.Y}) is outside the {w}x{h} canvas.");
-                prompt.Add(new { type = "point", data = new[] { pt.X, pt.Y }, label });
-            }
+        foreach (var pt in p.Include.Concat(p.Exclude))
+            if (pt.X < 0 || pt.Y < 0 || pt.X >= w || pt.Y >= h)
+                throw new ArgumentException($"Point ({pt.X},{pt.Y}) is outside the {w}x{h} canvas.");
+        System.Drawing.Rectangle? box = null;
         if (hasBox)
         {
             if (p.BoxX is not int bx || p.BoxY is not int by || p.BoxWidth is not int bw || p.BoxHeight is not int bh
                 || bw <= 0 || bh <= 0 || bx < 0 || by < 0 || (long)bx + bw > w || (long)by + bh > h)
                 throw new ArgumentException($"Box needs boxX, boxY, positive boxWidth and boxHeight, inside the {w}x{h} canvas.");
-            prompt.Add(new { type = "rectangle", data = new[] { bx, by, bx + bw, by + bh }, label = 1 });
+            box = new(bx, by, bw, bh);
         }
 
-        // ponytail: SAM sees the canvas at 1024 px on the long side; small objects on big photos get coarse edges.
-        // Upgrade path: crop around the box/points before running SAM.
-        var json = JsonSerializer.Serialize(new { sam_prompt = prompt });
-        var ai = AiMatting.RunOnRegion(buf, w, h, 0, 0, w, h, "sam", ["-om", "-x", json]);
-        if (!ai.Ok || ai.Bgra is null) throw new InvalidOperationException("SAM failed: " + ai.Note);
-        if (ai.W != w || ai.H != h) throw new InvalidOperationException($"SAM mask is {ai.W}x{ai.H}, canvas is {w}x{h}.");
-        var mask = ai.Bgra;
-        bool Inside(int x, int y) => mask[(y * w + x) * 4 + 1] > 127;
-        bool any = false;
-        for (int i = 1; i < mask.Length && !any; i += 4) any = mask[i] > 127;
-        if (!any) throw new InvalidOperationException("SAM found nothing at the given points/box; selection unchanged.");
+        // SAM sees its input at 1024 px on the long side, so a small object on a big photo gets coarse edges.
+        // Run it on a crop around the object instead: the box if given, else the object found by a first full-canvas pass.
+        var whole = new System.Drawing.Rectangle(0, 0, w, h);
+        byte[]? mask = null;
+        System.Drawing.Rectangle region;
+        if (box is { } b) region = b;
+        else
+        {
+            mask = RunSam(buf, w, h, whole, p, box);
+            region = MaskBounds(mask, w, h)
+                ?? throw new InvalidOperationException("SAM found nothing at the given points/box; selection unchanged.");
+            foreach (var pt in p.Include) region = System.Drawing.Rectangle.Union(region, new(pt.X, pt.Y, 1, 1));
+        }
+        region = Pad(region, w, h);
+        if (Math.Max(region.Width, region.Height) * 4 < Math.Max(w, h) * 3)   // under 3/4 of the canvas: crop gains resolution
+            mask = RunSam(buf, w, h, region, p, box);
+        else
+        {
+            mask ??= RunSam(buf, w, h, whole, p, box);
+            region = whole;
+        }
+        if (MaskBounds(mask, region.Width, region.Height) is null)
+            throw new InvalidOperationException("SAM found nothing at the given points/box; selection unchanged.");
+        int rx = region.X, ry = region.Y, rw = region.Width, rh = region.Height;
+        bool Inside(int x, int y) => x >= rx && y >= ry && x < rx + rw && y < ry + rh && mask[((y - ry) * rw + x - rx) * 4 + 1] > 127;
         return Ok(req.Id, NativeSelection.Mask(Inside, w, h, p.Mode, "MCP object selection"));
+    }
+
+    // One SAM run on a canvas region; prompt coordinates are shifted into it, exclude points outside it are dropped.
+    private static byte[] RunSam(byte[] buf, int w, int h, System.Drawing.Rectangle r, SelectObjectParams p, System.Drawing.Rectangle? box)
+    {
+        // rembg's SAM prompt: points label 1 = object, 0 = background; a rectangle is [x1, y1, x2, y2].
+        var prompt = new List<object>();
+        foreach (var (pts, label) in new[] { (p.Include, 1), (p.Exclude, 0) })
+            foreach (var pt in pts)
+                if (r.Contains(pt.X, pt.Y))
+                    prompt.Add(new { type = "point", data = new[] { pt.X - r.X, pt.Y - r.Y }, label });
+        if (box is { } b)
+            prompt.Add(new { type = "rectangle", data = new[] { b.X - r.X, b.Y - r.Y, b.Right - r.X, b.Bottom - r.Y }, label = 1 });
+        var json = JsonSerializer.Serialize(new { sam_prompt = prompt });
+        var ai = AiMatting.RunOnRegion(buf, w, h, r.X, r.Y, r.Width, r.Height, "sam", ["-om", "-x", json]);
+        if (!ai.Ok || ai.Bgra is null) throw new InvalidOperationException("SAM failed: " + ai.Note);
+        if (ai.W != r.Width || ai.H != r.Height) throw new InvalidOperationException($"SAM mask is {ai.W}x{ai.H}, region is {r.Width}x{r.Height}.");
+        return ai.Bgra;
+    }
+
+    private static System.Drawing.Rectangle? MaskBounds(byte[] mask, int w, int h)
+    {
+        int x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                if (mask[(y * w + x) * 4 + 1] > 127)
+                {
+                    if (x < x0) x0 = x; if (x > x1) x1 = x;
+                    if (y < y0) y0 = y; if (y > y1) y1 = y;
+                }
+        return x1 < 0 ? null : new(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+    }
+
+    // Context margin around the object: 25% of its long side, at least 32 px, clipped to the canvas.
+    private static System.Drawing.Rectangle Pad(System.Drawing.Rectangle r, int w, int h)
+    {
+        int m = Math.Max(32, Math.Max(r.Width, r.Height) / 4);
+        var padded = System.Drawing.Rectangle.Inflate(r, m, m);
+        padded.Intersect(new(0, 0, w, h));
+        return padded;
     }
 
     private static RpcResponse HandleClearSelection(RpcRequest req)

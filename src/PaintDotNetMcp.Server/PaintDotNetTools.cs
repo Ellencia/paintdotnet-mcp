@@ -867,7 +867,8 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
         "Magic Wand selection). Coordinates are canvas pixels on the visible image. mode: replace, union, exclude, " +
         "intersect or xor, combined with the current selection. Give at least one include point or a box; add exclude " +
         "points to cut away wrongly included parts. Does not change pixels. One native Undo step. Needs rembg on PATH " +
-        "(pip install \"rembg[cpu,cli]\"); takes a few seconds. Check the result with get_canvas_png before acting on it.")]
+        "(pip install \"rembg[cpu,cli]\"); takes a few seconds. Check the result with get_canvas_png before acting on it; " +
+        "if a part of the object is missing (e.g. a darker patch left as a hole), add it with mode union and an include point there.")]
     public async Task<string> SelectObject(
         [Description("Points on the object, e.g. [{\"x\":230,\"y\":420}].")] List<Point2I>? include = null,
         [Description("Points that must not be selected.")] List<Point2I>? exclude = null,
