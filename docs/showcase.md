@@ -43,7 +43,7 @@ save_pdn(...) / export_document(...)
 
 ### 결과
 
-<img src="showcase/01-annotation-before.jpg" alt="마커 두 개와 설명 박스, 박스에서 마커로 가는 화살표가 그려진 사진" width="380"> <img src="showcase/01-annotation-after.jpg" alt="저장한 파일을 다시 열어 설명 문구를 바꾼 뒤. 넓어진 박스 테두리에서 화살표가 다시 시작한다" width="380">
+<img src="showcase/01-annotation-before.jpg" alt="마커 두 개와 설명 박스, 박스에서 마커로 가는 화살표가 그려진 사진" width="49%"> <img src="showcase/01-annotation-after.jpg" alt="저장한 파일을 다시 열어 설명 문구를 바꾼 뒤. 넓어진 박스 테두리에서 화살표가 다시 시작한다" width="49%">
 
 왼쪽은 처음 추가한 상태, 오른쪽은 `.pdn`을 다시 열어 문구를 바꾼 상태입니다. 박스가 넓어지자 화살표가 새 테두리에서 다시 시작합니다.
 
@@ -98,7 +98,7 @@ crop_to_selection()                                                             
 
 ### 결과
 
-<img src="showcase/02-select-dog.jpg" alt="개 몸통에 점 하나를 찍어 개 전체가 빨갛게 선택된 사진" width="380"> <img src="showcase/02-select-head.jpg" alt="머리에 포함 점, 몸통과 다리에 제외 점을 주어 머리만 파랗게 선택된 사진" width="380">
+<img src="showcase/02-select-dog.jpg" alt="개 몸통에 점 하나를 찍어 개 전체가 빨갛게 선택된 사진" width="49%"> <img src="showcase/02-select-head.jpg" alt="머리에 포함 점, 몸통과 다리에 제외 점을 주어 머리만 파랗게 선택된 사진" width="47%">
 
 | 요청 | 선택 범위 (2252×4000 사진) |
 | --- | --- |
@@ -113,7 +113,7 @@ crop_to_selection()                                                             
 - **SAM은 보이는 그림 전체를 봅니다.** 지금 고른 레이어가 아니라 화면에 보이는 합성 결과에서 물체를 찾습니다.
 - **가장자리가 배경으로 번지던 문제는 0.5.37에서 고쳤습니다.** SAM은 사진을 긴 변 1024픽셀로 줄여서 보기 때문에, 큰 사진에서는 털 경계가 5–15픽셀 넘쳤습니다. 지금은 한 번 찾은 물체 주변만 잘라 다시 돌려서 경계가 털에 붙습니다.
 
-  <img src="showcase/02-edge-compare.jpg" alt="같은 개의 선택 경계 비교. 왼쪽 노란 경계(0.5.36)는 다리 사이 배경까지 넘치고, 오른쪽 하늘색 경계(0.5.37)는 털에 붙어 있다" width="760">
+  <img src="showcase/02-edge-compare.jpg" alt="같은 개의 선택 경계 비교. 왼쪽 노란 경계(0.5.36)는 다리 사이 배경까지 넘치고, 오른쪽 하늘색 경계(0.5.37)는 털에 붙어 있다" width="100%">
 
   왼쪽 노란 선이 0.5.36, 오른쪽 하늘색 선이 0.5.37입니다.
 - **구멍이 생기면 점 하나를 더 찍으세요.** 경계가 정밀해진 대신 귀 안쪽처럼 어두운 부분이 빠질 수 있습니다(실험에서 723픽셀). 그 자리에 `union` 점을 하나 더하면 메워집니다. "귀 안쪽이 빠졌으니 거기도 더해줘"라고 요청하면 됩니다.
@@ -152,16 +152,17 @@ save_pdn(...) / export_document(...)
 
 ### 결과
 
-<img src="showcase/03-caliper-photo.jpg" alt="디지털 캘리퍼 턱 사이에 볼트를 물리고 전장 23.30 mm를 표시한 원본 사진" width="180"> <img src="showcase/03-bolt-board.jpg" alt="누끼 딴 볼트 4개에 번호, 치수선, 규격 캡션을 붙인 보드의 윗줄" width="600">
+<img src="showcase/03-caliper-photo.jpg" alt="디지털 캘리퍼 턱 사이에 볼트를 물리고 전장 23.30 mm를 표시한 원본 사진" width="30%">
+<img src="showcase/03-bolt-board.jpg" alt="누끼 딴 볼트 4개에 번호, 치수선, 규격 캡션을 붙인 보드의 윗줄" width="100%">
 
-왼쪽이 원본 사진, 오른쪽이 결과 보드의 윗줄입니다(전체 17칸). 캡션은 텍스트 레이어라 `.pdn`에서 글자를 고칠 수 있습니다.
+위가 원본 사진, 아래가 결과 보드의 윗줄입니다(전체 17칸). 캡션은 텍스트 레이어라 `.pdn`에서 글자를 고칠 수 있습니다.
 
 ### 알아 두면 좋은 것
 
 - **누끼 영역은 넉넉하게 잡으세요.** 첫 시도에서 1번 볼트의 머리가 잘려 영역을 넓혀 다시 땄습니다.
 - **MCP로 하지 않는 게 나은 일도 있습니다.** 이 보드는 사진마다 배율이 달라 볼트 크기를 서로 비교할 수 없었습니다. 캘리퍼 턱 사이 간격이 곧 전장이라는 규칙으로 축척을 맞추고 기울기를 펴는 일은 사진마다 판단할 필요가 없어서, 짧은 Python 스크립트로 처리했습니다. 사람 눈이 필요한 일(누끼, 캡션 배치)은 MCP에, 규칙으로 끝나는 일은 스크립트에 맡기는 편이 빠르고 다시 돌리기도 쉽습니다.
 
-  <img src="showcase/03-bolt-sheet.jpg" alt="볼트 17종을 같은 축척(1 mm = 20 px)으로, 머리를 왼쪽에 두고 기울기를 펴서 배열한 시트" width="450">
+  <img src="showcase/03-bolt-sheet.jpg" alt="볼트 17종을 같은 축척(1 mm = 20 px)으로, 머리를 왼쪽에 두고 기울기를 펴서 배열한 시트" width="80%">
 
 ---
 
@@ -197,7 +198,7 @@ save_pdn(...) / export_document(...)
 
 ### 결과
 
-<img src="showcase/04-wiring.png" alt="ESP32-C3와 센서 두 개, 번호 붙은 점퍼 10개를 그린 브레드보드 배선도. 빨간 박스로 고칠 곳이 표시되어 있다" width="560"> <img src="showcase/04-breadboard-photo.jpg" alt="브레드보드에 꽂힌 ESP32-C3 실물 사진" width="180">
+<img src="showcase/04-wiring.png" alt="ESP32-C3와 센서 두 개, 번호 붙은 점퍼 10개를 그린 브레드보드 배선도. 빨간 박스로 고칠 곳이 표시되어 있다" width="64%"> <img src="showcase/04-breadboard-photo.jpg" alt="브레드보드에 꽂힌 ESP32-C3 실물 사진" width="33.5%">
 
 최종 파일은 레이어 7장입니다: 연결 구조, 모듈, 신호선 7-10, 전원선 1-6, 글자, 고칠 곳, 격자 바탕.
 
