@@ -18,13 +18,14 @@ internal static class AiMatting
     /// Run rembg on a region of the snapshot. Returns a BGRA buffer with background pixels
     /// set to alpha=0. The Bgra buffer is the same size as the region (w*h*4).
     /// </summary>
-    public static MattingResult RunOnRegion(byte[] bgra, int canvasW, int canvasH, int x, int y, int w, int h, string model)
+    public static MattingResult RunOnRegion(byte[] bgra, int canvasW, int canvasH, int x, int y, int w, int h, string model,
+        IEnumerable<string>? extraArgs = null)
     {
         var exe = FindRembgExecutable();
         if (exe is null)
         {
             return new(false, null, 0, 0,
-                "rembg not found. Install with: `pip install rembg[cli]` (first run downloads ~170MB model).");
+                "rembg not found. Install with: `pip install \"rembg[cpu,cli]\"` (first run downloads the model).");
         }
 
         string tempDir = Path.Combine(Path.GetTempPath(), "paintdotnet-mcp-rembg");
@@ -53,6 +54,7 @@ internal static class AiMatting
                 psi.ArgumentList.Add("-m");
                 psi.ArgumentList.Add(model);
             }
+            foreach (var arg in extraArgs ?? []) psi.ArgumentList.Add(arg);
             psi.ArgumentList.Add(inputPath);
             psi.ArgumentList.Add(outputPath);
 

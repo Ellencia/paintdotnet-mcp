@@ -42,6 +42,39 @@ internal static class NativeSelection
         }, "MCP polygon selection");
     }
 
+    // Same path as the Magic Wand: stencil -> GeometryList.FromStencil -> SetContinuation. Pixel-exact, keeps holes.
+    public static SelectionResult Mask(Func<int, int, bool> inside, int width, int height, string mode, string name)
+    {
+        return Run(selection =>
+        {
+            var stencilType = AppServices.FindType("PaintDotNet.Rendering.BitSurface")
+                ?? throw new InvalidOperationException("Paint.NET BitSurface not found.");
+            var fill = stencilType.GetMethods(Flags).Single(m => m.Name == "Fill" && m.GetParameters().Length == 2);
+            var rectType = fill.GetParameters()[0].ParameterType;
+            var fromStencil = AppServices.FindType("PaintDotNet.Rendering.GeometryList")!.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                .Single(m => m.Name == "FromStencil" && m.GetParameters().Length == 1).MakeGenericMethod(stencilType);
+            var set = selection.GetType().GetMethods(Flags).Single(m => m.Name == "SetContinuation" &&
+                m.GetParameters().Length == 2 && m.GetParameters()[0].ParameterType.Name == "GeometryList");
+            var stencil = Activator.CreateInstance(stencilType, width, height)!;
+            try
+            {
+                // One Fill per horizontal run keeps reflection calls to the number of runs, not pixels.
+                for (int y = 0; y < height; y++)
+                    for (int x = 0; x < width; x++)
+                    {
+                        if (!inside(x, y)) continue;
+                        int start = x;
+                        while (x < width && inside(x, y)) x++;
+                        fill.Invoke(stencil, [Activator.CreateInstance(rectType, start, y, x - start, 1)!, true]);
+                    }
+                var geometry = fromStencil.Invoke(null, [stencil])!;
+                set.Invoke(selection, [geometry, Enum.Parse(set.GetParameters()[1].ParameterType, mode, ignoreCase: true)]);
+                selection.GetType().GetMethod("CommitContinuation", Type.EmptyTypes)!.Invoke(selection, null);
+            }
+            finally { (stencil as IDisposable)?.Dispose(); }
+        }, name);
+    }
+
     public static SelectionResult Clear() => Run(selection =>
         selection.GetType().GetMethod("Reset", Type.EmptyTypes)!.Invoke(selection, null), "MCP clear selection", clear: true);
 

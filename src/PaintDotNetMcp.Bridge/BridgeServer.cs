@@ -219,11 +219,11 @@ internal static class BridgeServer
         {
             if (HistoryOps.BatchActive && req.Method is "open_image" or "new_canvas" or "commit" or "set_auto_commit" or
                 "add_layer" or "delete_layer" or "select_layer" or "apply_effect" or
-                "set_selection_rect" or "set_selection_polygon" or "clear_selection")
+                "set_selection_rect" or "set_selection_polygon" or "clear_selection" or "select_object")
                 throw new InvalidOperationException("Finish the active batch with end_batch before this operation.");
             // Snapshot consumers must not race an outstanding drawing operation.
             if (req.Method is "get_canvas_png" or "save_png" or "extract_region" or
-                "remove_background" or "detect_objects" or "extract_objects" or "ocr_region")
+                "remove_background" or "detect_objects" or "extract_objects" or "ocr_region" or "select_object")
             {
                 if (HistoryOps.BatchActive && req.Method is "get_canvas_png" or "save_png")
                     throw new InvalidOperationException("Finish the active batch with end_batch before reading or exporting images.");
@@ -294,6 +294,7 @@ internal static class BridgeServer
                 // v0.6 — selection / OCR
                 "set_selection_rect"    => HandleSetSelectionRect(req),
                 "set_selection_polygon" => HandleSetSelectionPolygon(req),
+            "select_object"         => HandleSelectObject(req),
                 "clear_selection"       => HandleClearSelection(req),
                 "get_selection"         => Ok(req.Id, NativeSelection.Get()),
                 "ocr_region"            => HandleOcrRegion(req),
@@ -778,6 +779,48 @@ internal static class BridgeServer
         var pts = new List<System.Drawing.Point>(p.Points.Count);
         foreach (var pt in p.Points) pts.Add(new System.Drawing.Point(pt.X, pt.Y));
         return Ok(req.Id, NativeSelection.Polygon(pts));
+    }
+
+    private static RpcResponse HandleSelectObject(RpcRequest req)
+    {
+        var p = req.Params?.Deserialize<SelectObjectParams>() ?? throw new InvalidOperationException("missing params");
+        if (p.Mode.ToLowerInvariant() is not ("replace" or "union" or "exclude" or "intersect" or "xor"))
+            throw new ArgumentException("mode must be replace, union, exclude, intersect or xor.");
+        bool hasBox = p.BoxX is not null || p.BoxY is not null || p.BoxWidth is not null || p.BoxHeight is not null;
+        if (p.Include.Count == 0 && !hasBox)
+            throw new ArgumentException("Give at least one include point or a box.");
+        // SAM looks at what the user sees (all visible layers), not just the active layer.
+        var buf = ImageIO.ReadImageSource("composite", out int w, out int h);
+
+        // rembg's SAM prompt: points label 1 = object, 0 = background; a rectangle is [x1, y1, x2, y2].
+        var prompt = new List<object>();
+        foreach (var (pts, label) in new[] { (p.Include, 1), (p.Exclude, 0) })
+            foreach (var pt in pts)
+            {
+                if (pt.X < 0 || pt.Y < 0 || pt.X >= w || pt.Y >= h)
+                    throw new ArgumentException($"Point ({pt.X},{pt.Y}) is outside the {w}x{h} canvas.");
+                prompt.Add(new { type = "point", data = new[] { pt.X, pt.Y }, label });
+            }
+        if (hasBox)
+        {
+            if (p.BoxX is not int bx || p.BoxY is not int by || p.BoxWidth is not int bw || p.BoxHeight is not int bh
+                || bw <= 0 || bh <= 0 || bx < 0 || by < 0 || (long)bx + bw > w || (long)by + bh > h)
+                throw new ArgumentException($"Box needs boxX, boxY, positive boxWidth and boxHeight, inside the {w}x{h} canvas.");
+            prompt.Add(new { type = "rectangle", data = new[] { bx, by, bx + bw, by + bh }, label = 1 });
+        }
+
+        // ponytail: SAM sees the canvas at 1024 px on the long side; small objects on big photos get coarse edges.
+        // Upgrade path: crop around the box/points before running SAM.
+        var json = JsonSerializer.Serialize(new { sam_prompt = prompt });
+        var ai = AiMatting.RunOnRegion(buf, w, h, 0, 0, w, h, "sam", ["-om", "-x", json]);
+        if (!ai.Ok || ai.Bgra is null) throw new InvalidOperationException("SAM failed: " + ai.Note);
+        if (ai.W != w || ai.H != h) throw new InvalidOperationException($"SAM mask is {ai.W}x{ai.H}, canvas is {w}x{h}.");
+        var mask = ai.Bgra;
+        bool Inside(int x, int y) => mask[(y * w + x) * 4 + 1] > 127;
+        bool any = false;
+        for (int i = 1; i < mask.Length && !any; i += 4) any = mask[i] > 127;
+        if (!any) throw new InvalidOperationException("SAM found nothing at the given points/box; selection unchanged.");
+        return Ok(req.Id, NativeSelection.Mask(Inside, w, h, p.Mode, "MCP object selection"));
     }
 
     private static RpcResponse HandleClearSelection(RpcRequest req)

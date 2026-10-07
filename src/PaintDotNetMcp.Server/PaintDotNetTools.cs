@@ -862,6 +862,24 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     }
 
     [McpServerTool, Description(
+        "Select an object by pointing at it: SAM (Segment Anything, via rembg) turns include points, exclude points " +
+        "and/or a box into a mask, which becomes Paint.NET's native selection (pixel-exact, holes kept, editable like a " +
+        "Magic Wand selection). Coordinates are canvas pixels on the visible image. mode: replace, union, exclude, " +
+        "intersect or xor, combined with the current selection. Give at least one include point or a box; add exclude " +
+        "points to cut away wrongly included parts. Does not change pixels. One native Undo step. Needs rembg on PATH " +
+        "(pip install \"rembg[cpu,cli]\"); takes a few seconds. Check the result with get_canvas_png before acting on it.")]
+    public async Task<string> SelectObject(
+        [Description("Points on the object, e.g. [{\"x\":230,\"y\":420}].")] List<Point2I>? include = null,
+        [Description("Points that must not be selected.")] List<Point2I>? exclude = null,
+        int? boxX = null, int? boxY = null, int? boxWidth = null, int? boxHeight = null,
+        string mode = "replace", CancellationToken ct = default)
+        => (await bridge.CallAsync("select_object", new SelectObjectParams
+        {
+            Include = include ?? [], Exclude = exclude ?? [], BoxX = boxX, BoxY = boxY,
+            BoxWidth = boxWidth, BoxHeight = boxHeight, Mode = mode
+        }, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description(
         "Clear native selection and any legacy software mask. Supports Undo/Redo; clearing " +
         "an already empty selection adds no history. Finish pending drawing or an active batch first.")]
     public async Task<string> ClearSelection(CancellationToken ct = default)
