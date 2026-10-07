@@ -20,7 +20,8 @@ MCP는 AI가 다른 프로그램의 기능을 사용할 수 있게 하는 연결
 
 실제 작업에 써 본 네 가지 사례(사진에 번호·설명 붙이기, 점 하나로 물체 선택, 부품 사진 누끼 목록, 브레드보드 배선도)는 요청 문장과 결과 그림까지 [docs/showcase.md](docs/showcase.md)에 있습니다.
 
-<a href="docs/showcase.md"><img src="docs/showcase/01-annotation-before.jpg" alt="사례 1: 사진에 번호와 설명" height="160"></a> <a href="docs/showcase.md"><img src="docs/showcase/02-select-dog.jpg" alt="사례 2: 점 하나로 물체 선택" height="160"></a> <a href="docs/showcase.md"><img src="docs/showcase/03-bolt-board.jpg" alt="사례 3: 부품 사진 누끼 목록" height="160"></a> <a href="docs/showcase.md"><img src="docs/showcase/04-wiring.png" alt="사례 4: 브레드보드 배선도" height="160"></a>
+<a href="docs/showcase.md"><img src="docs/showcase/01-annotation-before.jpg" alt="사례 1: 사진에 번호와 설명" width="32%"></a> <a href="docs/showcase.md"><img src="docs/showcase/02-select-dog.jpg" alt="사례 2: 점 하나로 물체 선택" width="32%"></a> <a href="docs/showcase.md"><img src="docs/showcase/04-wiring.png" alt="사례 4: 브레드보드 배선도" width="30.3%"></a>
+<a href="docs/showcase.md"><img src="docs/showcase/03-bolt-board.jpg" alt="사례 3: 부품 사진 누끼 목록" width="100%"></a>
 
 **레이어**는 투명한 종이를 여러 장 겹친 것과 같습니다. 배경, 사진, 제목을 각각 다른 장에 두면 제목만 옮기거나 사진만 바꿀 수 있습니다. **캔버스**는 그림을 만드는 전체 작업 공간입니다.
 
