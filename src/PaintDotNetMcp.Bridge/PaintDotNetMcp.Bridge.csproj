@@ -24,6 +24,8 @@
          so Paint.NET's plugin loader can resolve it next to PaintDotNetMcp.Bridge.dll. -->
     <PackageReference Include="SkiaSharp" Version="2.88.9" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="2.88.9" />
+    <!-- Edge matting helper for cutout_object; written to a temp file and run on rembg's Python. -->
+    <EmbeddedResource Include="matte.py" LogicalName="matte.py" />
   </ItemGroup>
 
   <Target Name="FlattenSkiaSharpNativeDll" AfterTargets="Build">

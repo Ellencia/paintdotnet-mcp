@@ -881,6 +881,30 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
         }, ct))?.ToString() ?? "{}";
 
     [McpServerTool, Description(
+        "Cut an object out onto a new transparent layer with soft edges, by pointing at it like select_object (same " +
+        "include/exclude points and box, same SAM mask). Unlike select_object + copy_selection_to_layer, whose edge is " +
+        "a hard 1-bit cut that keeps a rim of the old background, the edge is re-matted: alpha is re-estimated within " +
+        "band px of the mask edge (closed-form matting) and background color is removed from edge pixels, so hair, fur " +
+        "and motion-blurred wings stay partly transparent and do not show a dark or light halo on a new background. " +
+        "Colors come from the visible composite. The new layer is canvas-sized, placed above the active layer and " +
+        "selected; the source is unchanged. One native Undo step. band 0 keeps SAM's hard edge; larger bands help " +
+        "blurry edges but may pull in nearby background. Matting fixes edges, not shape: if part of the object is missing " +
+        "or extra, add include/exclude points or a box. Needs rembg on PATH (pip install \"rembg[cpu,cli]\"; pymatting " +
+        "comes with it). Takes a few seconds.")]
+    public async Task<string> CutoutObject(
+        [Description("Points on the object, e.g. [{\"x\":230,\"y\":420}].")] List<Point2I>? include = null,
+        [Description("Points that must not be included.")] List<Point2I>? exclude = null,
+        int? boxX = null, int? boxY = null, int? boxWidth = null, int? boxHeight = null,
+        [Description("Edge band half-width in px, 0..64. Default 6.")] int band = 6,
+        [Description("Name of the new layer.")] string name = "Cutout",
+        CancellationToken ct = default)
+        => (await bridge.CallAsync("cutout_object", new CutoutObjectParams
+        {
+            Include = include ?? [], Exclude = exclude ?? [], BoxX = boxX, BoxY = boxY,
+            BoxWidth = boxWidth, BoxHeight = boxHeight, Band = band, Name = name
+        }, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description(
         "Clear native selection and any legacy software mask. Supports Undo/Redo; clearing " +
         "an already empty selection adds no history. Finish pending drawing or an active batch first.")]
     public async Task<string> ClearSelection(CancellationToken ct = default)

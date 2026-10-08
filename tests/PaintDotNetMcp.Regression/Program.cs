@@ -49,6 +49,10 @@ static async Task Run()
     Check(!Call("set_selection_polygon", new SetSelectionPolygonParams { Points = [new() { X = 1, Y = 1 }, new() { X = 1, Y = 1 }, new() { X = 2, Y = 2 }] }).Ok, "Polygon must have three distinct points");
     Check(Call("select_object", new SelectObjectParams { Exclude = [new() { X = 1, Y = 1 }] }) is { Ok: false } so && so.Error!.Contains("include point or a box"), "SAM selection needs an include point or box");
     Check(Call("select_object", new SelectObjectParams { Include = [new() { X = 1, Y = 1 }], Mode = "3" }) is { Ok: false } sm && sm.Error!.Contains("mode"), "Unknown or numeric combine mode rejected");
+    Check(Call("cutout_object", new CutoutObjectParams { Exclude = [new() { X = 1, Y = 1 }] }) is { Ok: false } co && co.Error!.Contains("include point or a box"), "Cutout needs an include point or box");
+    Check(Call("cutout_object", new CutoutObjectParams { Include = [new() { X = 1, Y = 1 }], Band = 65 }) is { Ok: false } cb && cb.Error!.Contains("band"), "Cutout band outside 0..64 rejected");
+    Check(Call("cutout_object", new CutoutObjectParams { Include = [new() { X = 1, Y = 1 }], Name = " " }) is { Ok: false } cn && cn.Error!.Contains("name"), "Cutout layer name required");
+    Check(typeof(BridgeEffect).Assembly.GetManifestResourceNames().Contains("matte.py"), "Edge matting script is embedded in the Bridge");
     Console.WriteLine("PASS native selection input validation");
     Check(!Call("resize_canvas", new ResizeCanvasParams { Width = 0, Height = 20 }).Ok, "Invalid resize rejected before native mutation");
     Check(!Call("resize_canvas", new ResizeCanvasParams { Width = 10000, Height = 10000 }).Ok, "Excessive resize rejected");

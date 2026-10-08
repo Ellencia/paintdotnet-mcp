@@ -219,11 +219,11 @@ internal static class BridgeServer
         {
             if (HistoryOps.BatchActive && req.Method is "open_image" or "new_canvas" or "commit" or "set_auto_commit" or
                 "add_layer" or "delete_layer" or "select_layer" or "apply_effect" or
-                "set_selection_rect" or "set_selection_polygon" or "clear_selection" or "select_object")
+                "set_selection_rect" or "set_selection_polygon" or "clear_selection" or "select_object" or "cutout_object")
                 throw new InvalidOperationException("Finish the active batch with end_batch before this operation.");
             // Snapshot consumers must not race an outstanding drawing operation.
             if (req.Method is "get_canvas_png" or "save_png" or "extract_region" or
-                "remove_background" or "detect_objects" or "extract_objects" or "ocr_region" or "select_object")
+                "remove_background" or "detect_objects" or "extract_objects" or "ocr_region" or "select_object" or "cutout_object")
             {
                 if (HistoryOps.BatchActive && req.Method is "get_canvas_png" or "save_png")
                     throw new InvalidOperationException("Finish the active batch with end_batch before reading or exporting images.");
@@ -295,6 +295,7 @@ internal static class BridgeServer
                 "set_selection_rect"    => HandleSetSelectionRect(req),
                 "set_selection_polygon" => HandleSetSelectionPolygon(req),
             "select_object"         => HandleSelectObject(req),
+                "cutout_object"         => HandleCutoutObject(req),
                 "clear_selection"       => HandleClearSelection(req),
                 "get_selection"         => Ok(req.Id, NativeSelection.Get()),
                 "ocr_region"            => HandleOcrRegion(req),
@@ -786,6 +787,69 @@ internal static class BridgeServer
         var p = req.Params?.Deserialize<SelectObjectParams>() ?? throw new InvalidOperationException("missing params");
         if (p.Mode.ToLowerInvariant() is not ("replace" or "union" or "exclude" or "intersect" or "xor"))
             throw new ArgumentException("mode must be replace, union, exclude, intersect or xor.");
+        var (mask, region, w, h, _) = ObjectMask(p);
+        int rx = region.X, ry = region.Y, rw = region.Width, rh = region.Height;
+        bool Inside(int x, int y) => x >= rx && y >= ry && x < rx + rw && y < ry + rh && mask[((y - ry) * rw + x - rx) * 4 + 1] > 127;
+        return Ok(req.Id, NativeSelection.Mask(Inside, w, h, p.Mode, "MCP object selection"));
+    }
+
+    // SAM's selection as a new layer with soft edges: alpha is re-estimated in a band around the mask edge (matte.py),
+    // which a native selection cannot carry. Colors come from the visible composite, like SAM's input.
+    private static RpcResponse HandleCutoutObject(RpcRequest req)
+    {
+        var p = req.Params?.Deserialize<CutoutObjectParams>() ?? throw new InvalidOperationException("missing params");
+        if (p.Band is < 0 or > 64) throw new ArgumentException("band must be 0..64 px.");
+        if (string.IsNullOrWhiteSpace(p.Name) || p.Name.Length > 256) throw new ArgumentException("Layer name must contain 1..256 characters.");
+        var (mask, region, w, h, buf) = ObjectMask(new SelectObjectParams
+        {
+            Include = p.Include, Exclude = p.Exclude, BoxX = p.BoxX, BoxY = p.BoxY, BoxWidth = p.BoxWidth, BoxHeight = p.BoxHeight
+        });
+        int rx = region.X, ry = region.Y, rw = region.Width, rh = region.Height;
+        var source = ImageIO.CropBuffer(buf, w, h, rx, ry, rw, rh);
+        byte[] pixels;
+        if (p.Band == 0)
+        {
+            pixels = source;
+            for (int i = 0; i < rw * rh; i++) if (mask[i * 4 + 1] <= 127) pixels[i * 4 + 3] = 0;
+        }
+        else
+        {
+            var matted = AiMatting.RefineEdges(ImageIO.EncodeImage(source, rw, rh, 0, 0, rw, rh, SKEncodedImageFormat.Png, 100),
+                ImageIO.EncodeImage(mask, rw, rh, 0, 0, rw, rh, SKEncodedImageFormat.Png, 100), p.Band);
+            if (!matted.Ok || matted.Bgra is null) throw new InvalidOperationException("Edge matting failed: " + matted.Note);
+            if (matted.W != rw || matted.H != rh) throw new InvalidOperationException($"Matte is {matted.W}x{matted.H}, region is {rw}x{rh}.");
+            pixels = matted.Bgra;
+            // matte.py sees RGB only; keep transparency the composite already had.
+            for (int i = 0; i < rw * rh; i++) pixels[i * 4 + 3] = (byte)(pixels[i * 4 + 3] * source[i * 4 + 3] / 255);
+        }
+        int opaque = 0, edge = 0;
+        for (int i = 0; i < rw * rh; i++)
+            if (pixels[i * 4 + 3] == 255) opaque++;
+            else if (pixels[i * 4 + 3] > 0) edge++;
+        if (opaque + edge == 0) throw new InvalidOperationException("Cutout is empty; nothing added.");
+        return Ok(req.Id, NativeEditing.Run(workspace =>
+        {
+            int index = NativeEditing.InsertLayer(workspace, p.Name, "MCP cut out object", s =>
+            {
+                for (int y = 0; y < rh; y++)
+                    for (int x = 0; x < rw; x++)
+                    {
+                        int i = (y * rw + x) * 4;
+                        if (pixels[i + 3] > 0) s[rx + x, ry + y] = ColorBgra.FromBgra(pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]);
+                    }
+            });
+            return new
+            {
+                Ok = true, LayerIndex = index, p.Name, X = rx, Y = ry, Width = rw, Height = rh,
+                OpaquePixels = opaque, EdgePixels = edge, p.Band, HistorySteps = 1
+            };
+        }));
+    }
+
+    // SAM mask for include/exclude points and/or a box, on a crop around the object when that gains resolution.
+    // Returns the mask (BGRA, region-sized, object where G > 127), its canvas region, and the composite it came from.
+    private static (byte[] Mask, System.Drawing.Rectangle Region, int W, int H, byte[] Image) ObjectMask(SelectObjectParams p)
+    {
         bool hasBox = p.BoxX is not null || p.BoxY is not null || p.BoxWidth is not null || p.BoxHeight is not null;
         if (p.Include.Count == 0 && !hasBox)
             throw new ArgumentException("Give at least one include point or a box.");
@@ -814,7 +878,7 @@ internal static class BridgeServer
         {
             mask = RunSam(buf, w, h, whole, p, box);
             region = MaskBounds(mask, w, h)
-                ?? throw new InvalidOperationException("SAM found nothing at the given points/box; selection unchanged.");
+                ?? throw new InvalidOperationException("SAM found nothing at the given points/box; nothing changed.");
             foreach (var pt in p.Include) region = System.Drawing.Rectangle.Union(region, new(pt.X, pt.Y, 1, 1));
         }
         region = Pad(region, w, h);
@@ -826,10 +890,8 @@ internal static class BridgeServer
             region = whole;
         }
         if (MaskBounds(mask, region.Width, region.Height) is null)
-            throw new InvalidOperationException("SAM found nothing at the given points/box; selection unchanged.");
-        int rx = region.X, ry = region.Y, rw = region.Width, rh = region.Height;
-        bool Inside(int x, int y) => x >= rx && y >= ry && x < rx + rw && y < ry + rh && mask[((y - ry) * rw + x - rx) * 4 + 1] > 127;
-        return Ok(req.Id, NativeSelection.Mask(Inside, w, h, p.Mode, "MCP object selection"));
+            throw new InvalidOperationException("SAM found nothing at the given points/box; nothing changed.");
+        return (mask, region, w, h, buf);
     }
 
     // One SAM run on a canvas region; prompt coordinates are shifted into it, exclude points outside it are dropped.

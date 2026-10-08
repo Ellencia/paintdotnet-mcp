@@ -22,20 +22,14 @@ internal static class NativeEditing
             throw new ArgumentException("Layer name must contain 1..256 characters.");
         return Run(workspace =>
         {
-            var document = Property(workspace, "Document");
             var selection = Property(workspace, "Selection");
             if (Property(selection, "IsEmpty") is true)
                 throw new InvalidOperationException("Select a region before copying it to a new layer.");
             var source = Property(Property(workspace, "ActiveLayer"), "Surface") as Surface
                 ?? throw new InvalidOperationException("Active layer is not a bitmap layer.");
             var scans = (IEnumerable)selection.GetType().GetMethod("GetCachedClippingMaskScans", Type.EmptyTypes)!.Invoke(selection, null)!;
-            var layerType = AppServices.FindType("PaintDotNet.BitmapLayer")!;
-            var layer = layerType.GetConstructor([typeof(int), typeof(int)])!.Invoke([source.Width, source.Height]);
-            bool inserted = false;
-            try
+            int index = InsertLayer(workspace, p.Name, "MCP copy selection to layer", destination =>
             {
-                var destination = (Surface)Property(layer, "Surface");
-                destination.Fill(ColorBgra.Zero);
                 bool hasArea = false;
                 foreach (var scan in scans)
                 {
@@ -47,18 +41,35 @@ internal static class NativeEditing
                     hasArea |= bounds.Width > 0 && bounds.Height > 0;
                 }
                 if (!hasArea) throw new InvalidOperationException("Selection does not intersect the canvas.");
-                layerType.GetProperty("Name")!.SetValue(layer, p.Name);
-                int index = (int)Property(workspace, "ActiveLayerIndex") + 1;
-                var history = Memento("NewLayerHistoryMemento", "MCP copy selection to layer", workspace, index);
-                var layers = Property(document, "Layers");
-                layers.GetType().GetMethod("Insert", [typeof(int), layerType.BaseType!])!.Invoke(layers, [index, layer]);
-                inserted = true;
-                workspace.GetType().GetProperty("ActiveLayerIndex")!.SetValue(workspace, index);
-                Push(workspace, history);
-                return new { Ok = true, LayerIndex = index, Name = p.Name, Width = source.Width, Height = source.Height, HistorySteps = 1 };
-            }
-            finally { if (!inserted) (layer as IDisposable)?.Dispose(); }
+            });
+            return new { Ok = true, LayerIndex = index, Name = p.Name, Width = source.Width, Height = source.Height, HistorySteps = 1 };
         });
+    }
+
+    // Inserts a canvas-sized transparent layer above the active one, drawn by fill, and selects it. One Undo step;
+    // if fill throws, nothing is inserted.
+    internal static int InsertLayer(object workspace, string name, string historyName, Action<Surface> fill)
+    {
+        var document = Property(workspace, "Document");
+        var layerType = AppServices.FindType("PaintDotNet.BitmapLayer")!;
+        var layer = layerType.GetConstructor([typeof(int), typeof(int)])!.Invoke([(int)Property(document, "Width"), (int)Property(document, "Height")]);
+        bool inserted = false;
+        try
+        {
+            var destination = (Surface)Property(layer, "Surface");
+            destination.Fill(ColorBgra.Zero);
+            fill(destination);
+            layerType.GetProperty("Name")!.SetValue(layer, name);
+            int index = (int)Property(workspace, "ActiveLayerIndex") + 1;
+            var history = Memento("NewLayerHistoryMemento", historyName, workspace, index);
+            var layers = Property(document, "Layers");
+            layers.GetType().GetMethod("Insert", [typeof(int), layerType.BaseType!])!.Invoke(layers, [index, layer]);
+            inserted = true;
+            workspace.GetType().GetProperty("ActiveLayerIndex")!.SetValue(workspace, index);
+            Push(workspace, history);
+            return index;
+        }
+        finally { if (!inserted) (layer as IDisposable)?.Dispose(); }
     }
 
     public static object Resize(ResizeCanvasParams p)

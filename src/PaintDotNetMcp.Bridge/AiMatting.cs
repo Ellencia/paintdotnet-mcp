@@ -39,43 +39,14 @@ internal static class AiMatting
                 SkiaSharp.SKEncodedImageFormat.Png, 100);
             File.WriteAllBytes(inputPath, png);
 
-            var psi = new ProcessStartInfo
-            {
-                FileName = exe,
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
             // rembg CLI signature: `rembg i [-m model] input output`
-            psi.ArgumentList.Add("i");
-            if (!string.IsNullOrWhiteSpace(model))
-            {
-                psi.ArgumentList.Add("-m");
-                psi.ArgumentList.Add(model);
-            }
-            foreach (var arg in extraArgs ?? []) psi.ArgumentList.Add(arg);
-            psi.ArgumentList.Add(inputPath);
-            psi.ArgumentList.Add(outputPath);
-
-            using var proc = Process.Start(psi);
-            if (proc is null) return new(false, null, 0, 0, "failed to start rembg");
+            var args = new List<string> { "i" };
+            if (!string.IsNullOrWhiteSpace(model)) args.AddRange(["-m", model]);
+            args.AddRange(extraArgs ?? []);
+            args.AddRange([inputPath, outputPath]);
             // First-run model download can take a minute; allow 60s.
-            proc.WaitForExit(60000);
-            if (!proc.HasExited)
-            {
-                try { proc.Kill(true); } catch { }
-                return new(false, null, 0, 0, "rembg timed out (60s) — first run downloads the model.");
-            }
-            if (proc.ExitCode != 0)
-            {
-                var err = proc.StandardError.ReadToEnd();
-                return new(false, null, 0, 0, "rembg exit " + proc.ExitCode + ": " + err.Trim());
-            }
-
-            if (!File.Exists(outputPath)) return new(false, null, 0, 0, "rembg produced no output");
-            var outBytes = File.ReadAllBytes(outputPath);
-            var outBgra = ImageIO.DecodeImage(outBytes, out int ow, out int oh);
+            if (Exec("rembg", exe, args, outputPath) is { } error) return new(false, null, 0, 0, error);
+            var outBgra = ImageIO.DecodeImage(File.ReadAllBytes(outputPath), out int ow, out int oh);
             return new(true, outBgra, ow, oh, "ok" + (string.IsNullOrWhiteSpace(model) ? "" : " (model=" + model + ")"));
         }
         catch (Exception ex)
@@ -87,6 +58,80 @@ internal static class AiMatting
             try { if (File.Exists(inputPath))  File.Delete(inputPath); } catch { }
             try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { }
         }
+    }
+
+    /// <summary>
+    /// Soft edges for a binary mask (matte.py: trimap of ±band px around the edge, closed-form alpha matting,
+    /// background bled out of edge colors). imagePng and maskPng are the same size; returns straight-alpha BGRA.
+    /// </summary>
+    public static MattingResult RefineEdges(byte[] imagePng, byte[] maskPng, int band)
+    {
+        var python = FindRembgPython();
+        if (python is null)
+            return new(false, null, 0, 0, "rembg not found, or its Python could not be located. Install with: `pip install \"rembg[cpu,cli]\"`.");
+        string tempDir = Path.Combine(Path.GetTempPath(), "paintdotnet-mcp-rembg");
+        Directory.CreateDirectory(tempDir);
+        string id = Guid.NewGuid().ToString("N");
+        string script = Path.Combine(tempDir, "matte-" + id + ".py"), image = Path.Combine(tempDir, "img-" + id + ".png"),
+            mask = Path.Combine(tempDir, "mask-" + id + ".png"), output = Path.Combine(tempDir, "matte-" + id + ".png");
+        try
+        {
+            using (var resource = typeof(AiMatting).Assembly.GetManifestResourceStream("matte.py")!)
+            using (var file = File.Create(script)) resource.CopyTo(file);
+            File.WriteAllBytes(image, imagePng);
+            File.WriteAllBytes(mask, maskPng);
+            if (Exec("matte.py", python, [script, image, mask, output, band.ToString()], output) is { } error) return new(false, null, 0, 0, error);
+            var bgra = ImageIO.DecodeImage(File.ReadAllBytes(output), out int w, out int h);
+            return new(true, bgra, w, h, "ok");
+        }
+        catch (Exception ex)
+        {
+            return new(false, null, 0, 0, "edge matting exception: " + ex.Message);
+        }
+        finally
+        {
+            foreach (var f in new[] { script, image, mask, output })
+                try { if (File.Exists(f)) File.Delete(f); } catch { }
+        }
+    }
+
+    // Runs a process to completion (60 s); returns null on success or the reason it failed.
+    private static string? Exec(string label, string exe, IEnumerable<string> args, string expectedOutput)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = exe,
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        foreach (var arg in args) psi.ArgumentList.Add(arg);
+        using var proc = Process.Start(psi);
+        if (proc is null) return "failed to start " + label;
+        // Drain stderr while waiting so a chatty process cannot block on a full pipe.
+        var stderr = proc.StandardError.ReadToEndAsync();
+        proc.WaitForExit(60000);
+        if (!proc.HasExited)
+        {
+            try { proc.Kill(true); } catch { }
+            return label + " timed out (60s) — first run downloads the model.";
+        }
+        if (proc.ExitCode != 0) return label + " exit " + proc.ExitCode + ": " + stderr.Result.Trim();
+        return File.Exists(expectedOutput) ? null : label + " produced no output";
+    }
+
+    // The interpreter rembg runs on is the one that has pymatting (a rembg dependency). pip's rembg.exe launcher
+    // carries it as a #!"...python.exe" line; a venv keeps python.exe beside rembg.exe.
+    private static string? FindRembgPython()
+    {
+        var exe = FindRembgExecutable();
+        if (exe is null) return null;
+        var text = System.Text.Encoding.Latin1.GetString(File.ReadAllBytes(exe));
+        var shebang = System.Text.RegularExpressions.Regex.Match(text, "#!\"?([^\"\\r\\n]*python\\.exe)");
+        if (shebang.Success && File.Exists(shebang.Groups[1].Value)) return shebang.Groups[1].Value;
+        var beside = Path.Combine(Path.GetDirectoryName(exe)!, "python.exe");
+        return File.Exists(beside) ? beside : null;
     }
 
     private static string? FindRembgExecutable()
