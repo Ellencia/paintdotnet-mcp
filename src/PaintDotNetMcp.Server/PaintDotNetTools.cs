@@ -895,7 +895,8 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
         [Description("Points on the object, e.g. [{\"x\":230,\"y\":420}].")] List<Point2I>? include = null,
         [Description("Points that must not be included.")] List<Point2I>? exclude = null,
         int? boxX = null, int? boxY = null, int? boxWidth = null, int? boxHeight = null,
-        [Description("Edge band half-width in px, 0..64. Default 6.")] int band = 6,
+        [Description("Edge band half-width in px, 0..64. Default 6 suits smooth backgrounds (sky, wall); use 2-4 on " +
+            "textured ground (gravel, dirt, grass), where wider bands pull background in as a dark rim.")] int band = 6,
         [Description("Name of the new layer.")] string name = "Cutout",
         CancellationToken ct = default)
         => (await bridge.CallAsync("cutout_object", new CutoutObjectParams
