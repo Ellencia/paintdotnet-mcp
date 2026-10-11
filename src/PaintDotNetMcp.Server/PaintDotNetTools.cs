@@ -103,12 +103,31 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
 
     [McpServerTool, Description(
         "Ping the Paint.NET MCP Bridge plugin. Returns version, whether a document is open, " +
-        "canvas dimensions, pending op count, snapshot readiness, ConnectionStatus and RecoveryAction. " +
+        "canvas dimensions, document name and path, pending op count, snapshot readiness, ConnectionStatus and RecoveryAction. " +
         "Open Paint.NET and a canvas; the Bridge starts during plugin discovery and initializes " +
         "the snapshot automatically. The Tools menu is a fallback for connection problems.")]
     public async Task<string> Ping(CancellationToken ct)
     {
         var result = await bridge.CallAsync("ping", null, ct);
+        return result?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description(
+        "List open Paint.NET documents with their tab index, file name, full path when saved, and active status. " +
+        "Use activate_document before editing a different open document. Unsaved documents may have no path.")]
+    public async Task<string> ListOpenDocuments(CancellationToken ct = default)
+    {
+        var result = await bridge.CallAsync("list_open_documents", null, ct);
+        return result?.ToString() ?? "{}";
+    }
+
+    [McpServerTool, Description(
+        "Select an open Paint.NET document by the index returned from list_open_documents, " +
+        "then use normal MCP editing tools on that document. This changes the visible active tab. " +
+        "It fails safely if pending drawing or the Paint.NET version does not support tab selection.")]
+    public async Task<string> ActivateDocument(int index, CancellationToken ct = default)
+    {
+        var result = await bridge.CallAsync("activate_document", new { index }, ct);
         return result?.ToString() ?? "{}";
     }
 
@@ -161,22 +180,6 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
         {
             OffsetX = offsetX, OffsetY = offsetY, ScaleX = scaleX, ScaleY = scaleY,
             AngleDegrees = angleDegrees, PivotX = pivotX, PivotY = pivotY, Interpolation = interpolation
-        }, ct))?.ToString() ?? "{}";
-
-    [McpServerTool, Description(
-        "Align the active layer's visible content (bounding box of pixels with alpha > 0) inside a target box, " +
-        "so you don't compute offsets yourself. Target defaults to the whole canvas; pass targetX/Y/Width/Height together for another box. " +
-        "margin insets the target on every side (snap-to-margin). horizontal: left|center|right; vertical: top|middle|bottom; " +
-        "an omitted axis keeps its position unless fit is set, then it centers. fit: none (keep size), contain (scale to fit inside), " +
-        "cover (scale to fill, overflow clipped); scaling is uniform. Large bilinear upscales feather edges about scale/2 px past the target (and margin); use interpolation=nearest for hard edges. Fully opaque layers (e.g. a background photo) already fill the canvas, so nothing moves. " +
-        "Rasterizes editable text: for text layers prefer arrange_layers. Same queue, selection clipping, batch and Undo rules as transform_layer.")]
-    public async Task<string> AlignLayer(string? horizontal = null, string? vertical = null, string fit = "none", int margin = 0,
-        int? targetX = null, int? targetY = null, int? targetWidth = null, int? targetHeight = null,
-        string interpolation = "bilinear", CancellationToken ct = default)
-        => (await bridge.CallAsync("align_layer", new AlignLayerParams
-        {
-            Horizontal = horizontal, Vertical = vertical, Fit = fit, Margin = margin, TargetX = targetX, TargetY = targetY,
-            TargetWidth = targetWidth, TargetHeight = targetHeight, Interpolation = interpolation
         }, ct))?.ToString() ?? "{}";
 
     [McpServerTool, Description(
@@ -245,97 +248,22 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
 
     [McpServerTool, Description(
         "Queue a rectangle draw on the active layer. Stroked by default; set fill=true for a filled box. " +
-        "cornerRadius > 0 rounds the corners. Applies on the next render pass.")]
+        "Applies on the next render pass.")]
     public async Task<string> DrawRectangle(
         int x, int y, int width, int height,
         byte r, byte g, byte b,
         byte a = 255,
         int thickness = 1,
         bool fill = false,
-        int cornerRadius = 0,
         CancellationToken ct = default)
     {
         var p = new DrawRectangleParams
         {
             X = x, Y = y, Width = width, Height = height,
             R = r, G = g, B = b, A = a,
-            Thickness = thickness, Fill = fill, CornerRadius = cornerRadius,
+            Thickness = thickness, Fill = fill,
         };
         var res = await bridge.CallAsync("draw_rect", p, ct);
-        return res?.ToString() ?? "{}";
-    }
-
-    [McpServerTool, Description(
-        "Queue an arrow from (x1,y1) to (x2,y2) on the active layer; the filled head's tip lands exactly on (x2,y2). " +
-        "headSize is the head length in px (0 = max(10, thickness*4)). bothEnds=true adds a head at (x1,y1).")]
-    public async Task<string> DrawArrow(
-        int x1, int y1, int x2, int y2,
-        byte r, byte g, byte b,
-        byte a = 255,
-        int thickness = 3,
-        int headSize = 0,
-        bool bothEnds = false,
-        CancellationToken ct = default)
-    {
-        var p = new DrawArrowParams
-        {
-            X1 = x1, Y1 = y1, X2 = x2, Y2 = y2, R = r, G = g, B = b, A = a,
-            Thickness = thickness, HeadSize = headSize, BothEnds = bothEnds,
-        };
-        var res = await bridge.CallAsync("draw_arrow", p, ct);
-        return res?.ToString() ?? "{}";
-    }
-
-    [McpServerTool, Description(
-        "Queue a numbered marker: a filled circle centered at (x,y) with a bold label (1..8 chars, e.g. \"1\", \"A\", \"12\") " +
-        "visually centered inside. The font auto-sizes to the radius (4..256). Default red circle, white label.")]
-    public async Task<string> DrawMarker(
-        int x, int y,
-        string label,
-        int radius = 16,
-        byte r = 220, byte g = 30, byte b = 30,
-        byte a = 255,
-        byte textR = 255, byte textG = 255, byte textB = 255,
-        string fontFamily = "Segoe UI",
-        CancellationToken ct = default)
-    {
-        var p = new DrawMarkerParams
-        {
-            X = x, Y = y, Label = label, Radius = radius, R = r, G = g, B = b, A = a,
-            TextR = textR, TextG = textG, TextB = textB, FontFamily = fontFamily,
-        };
-        var res = await bridge.CallAsync("draw_marker", p, ct);
-        return res?.ToString() ?? "{}";
-    }
-
-    [McpServerTool, Description(
-        "Queue a callout: a rounded box whose top-left is (x,y), auto-sized to the text plus padding, with an optional " +
-        "leader arrow from the nearest box edge to (targetX,targetY). r/g/b color the text, border and leader; bg* is the box fill. " +
-        "The response's info.box gives the computed box so further callouts can be placed without overlap. " +
-        "Pixels, not an editable text layer.")]
-    public async Task<string> DrawCallout(
-        int x, int y,
-        string text,
-        byte r = 0, byte g = 0, byte b = 0,
-        byte bgR = 255, byte bgG = 255, byte bgB = 255, byte bgA = 255,
-        float fontSize = 16f,
-        string fontFamily = "Segoe UI",
-        bool bold = false,
-        int borderThickness = 2,
-        int padding = 8,
-        int cornerRadius = 6,
-        int? targetX = null, int? targetY = null,
-        CancellationToken ct = default)
-    {
-        var p = new DrawCalloutParams
-        {
-            X = x, Y = y, Text = text, R = r, G = g, B = b,
-            BgR = bgR, BgG = bgG, BgB = bgB, BgA = bgA,
-            FontSize = fontSize, FontFamily = fontFamily, Bold = bold,
-            BorderThickness = borderThickness, Padding = padding, CornerRadius = cornerRadius,
-            TargetX = targetX, TargetY = targetY,
-        };
-        var res = await bridge.CallAsync("draw_callout", p, ct);
         return res?.ToString() ?? "{}";
     }
 
@@ -662,7 +590,7 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     // ---- v0.5 Layer management (reflection) --------------------------------
 
     [McpServerTool, Description(
-        "List all layers in the active document with index, name, dimensions, visibility, opacity, blend mode, " +
+        "List all layers in the active document with index, name, dimensions, visibility, " +
         "and which one is active. Reflection-based; may return ok=false on unfamiliar Paint.NET builds.")]
     public async Task<string> ListLayers(CancellationToken ct = default)
     {
@@ -694,93 +622,6 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
         return res?.ToString() ?? "{}";
     }
 
-    [McpServerTool, Description(
-        "Change a layer's name, visibility, opacity (0..1) and/or blend mode. Omitted properties are preserved; " +
-        "layerIndex=-1 means active layer. BlendMode: Normal, Multiply, Additive, ColorBurn, ColorDodge, Reflect, Glow, " +
-        "Overlay, Difference, Negation, Lighten, Darken, Screen, Xor. Pixels are untouched. One native Undo step " +
-        "(zero when nothing changes), same as Paint.NET's Layer Properties dialog. Finish pending drawing or a batch first.")]
-    public async Task<string> SetLayerProperties(int layerIndex = -1, string? name = null, bool? visible = null,
-        double? opacity = null, string? blendMode = null, CancellationToken ct = default)
-    {
-        var res = await bridge.CallAsync("set_layer_properties", new SetLayerPropertiesParams
-            { LayerIndex = layerIndex, Name = name, Visible = visible, Opacity = opacity, BlendMode = blendMode }, ct);
-        return res?.ToString() ?? "{}";
-    }
-
-    [McpServerTool, Description(
-        "Duplicate a layer (layerIndex=-1 means active) directly above itself, including MCP text definitions. " +
-        "One native Undo step, same as Paint.NET's Layers > Duplicate Layer. Finish pending drawing or a batch first.")]
-    public Task<string> DuplicateLayer(int layerIndex = -1, CancellationToken ct = default)
-        => LayerFunction("duplicate", layerIndex, -1, ct);
-
-    [McpServerTool, Description(
-        "Move a layer from layerIndex (-1 = active) to toIndex. Index 0 is the bottom layer; higher indexes draw on top. " +
-        "One native Undo step (zero when the index is unchanged). Finish pending drawing or a batch first.")]
-    public Task<string> MoveLayer(int toIndex, int layerIndex = -1, CancellationToken ct = default)
-        => LayerFunction("move", layerIndex, toIndex, ct);
-
-    [McpServerTool, Description(
-        "Merge a layer (-1 = active) into the layer directly below it, like Paint.NET's Layers > Merge Layer Down. " +
-        "Fails on the bottom layer. A merged MCP text layer keeps its definition but update_text_layer will refuse to " +
-        "regenerate it unless replaceModifiedPixels=true. One native Undo step.")]
-    public Task<string> MergeLayerDown(int layerIndex = -1, CancellationToken ct = default)
-        => LayerFunction("merge_down", layerIndex, -1, ct);
-
-    [McpServerTool, Description(
-        "Flatten all layers into one, like Paint.NET's Image > Flatten. One native Undo step (zero with a single layer).")]
-    public Task<string> FlattenImage(CancellationToken ct = default)
-        => LayerFunction("flatten", -1, -1, ct);
-
-    [McpServerTool, Description(
-        "Align and/or evenly distribute whole layers by their visible bounds (pixels with alpha > 0), as one native Undo step. " +
-        "layerIndices lists the layers (0 = bottom). relativeTo: canvas (inset by margin) or layers (their combined bounds). " +
-        "horizontal: left|center|right; vertical: top|middle|bottom; distribute: horizontal|vertical spaces neighbours equally " +
-        "in their current order, outer layers touching the box edges; combine distribute with alignment on the other axis. " +
-        "Moves by whole pixels without scaling or selection clipping. MCP text layers stay editable (their x/y are updated); " +
-        "pixels pushed off the canvas of other layers are lost. Finish pending drawing or a batch first.")]
-    public async Task<string> ArrangeLayers(int[] layerIndices, string? horizontal = null, string? vertical = null,
-        string? distribute = null, string relativeTo = "canvas", int margin = 0, CancellationToken ct = default)
-        => (await bridge.CallAsync("arrange_layers", new ArrangeLayersParams
-        {
-            LayerIndices = layerIndices, Horizontal = horizontal, Vertical = vertical, Distribute = distribute,
-            RelativeTo = relativeTo, Margin = margin
-        }, ct))?.ToString() ?? "{}";
-
-    [McpServerTool, Description(
-        "Add an editable annotation: type callout, arrow or marker, with the same properties as draw_callout/draw_arrow/draw_marker " +
-        "(e.g. {\"x\":40,\"y\":30,\"text\":\"AC 220V\"}; {\"x1\":0,\"y1\":0,\"x2\":90,\"y2\":60,\"r\":220,\"thickness\":6}; {\"x\":120,\"y\":80,\"label\":\"1\"}). " +
-        "Goes on the active layer if it is an annotation layer, otherwise on a new \"Annotations\" layer above it. " +
-        "Links: an arrow's from/to and a callout's target may name a marker or callout id on the same layer; the line then " +
-        "starts/ends at that shape's edge and follows it when it moves. Returns the id and every item's bounds. One native Undo step.")]
-    public async Task<string> AddAnnotation(string type, Dictionary<string, JsonElement>? properties = null,
-        string? from = null, string? to = null, string? target = null, bool replaceModifiedPixels = false, CancellationToken ct = default)
-        => (await bridge.CallAsync("add_annotation", new AnnotationParams
-            { Type = type, Properties = properties, From = from, To = to, Target = target, ReplaceModifiedPixels = replaceModifiedPixels }, ct))?.ToString() ?? "{}";
-
-    [McpServerTool, Description(
-        "Change an annotation by id (see list_annotations): given properties replace stored ones, others stay; from/to/target " +
-        "relink (\"\" unlinks). The whole annotation layer is redrawn, so linked arrows and leaders follow. Rejects when the layer's " +
-        "pixels were edited by other tools unless replaceModifiedPixels=true (which discards those edits). One native Undo step.")]
-    public async Task<string> UpdateAnnotation(string id, Dictionary<string, JsonElement>? properties = null,
-        string? from = null, string? to = null, string? target = null, bool replaceModifiedPixels = false, CancellationToken ct = default)
-        => (await bridge.CallAsync("update_annotation", new AnnotationParams
-            { Id = id, Properties = properties, From = from, To = to, Target = target, ReplaceModifiedPixels = replaceModifiedPixels }, ct))?.ToString() ?? "{}";
-
-    [McpServerTool, Description("Delete an annotation by id. Refuses while other annotations link to it. One native Undo step.")]
-    public async Task<string> DeleteAnnotation(string id, bool replaceModifiedPixels = false, CancellationToken ct = default)
-        => (await bridge.CallAsync("delete_annotation", new AnnotationParams { Id = id, ReplaceModifiedPixels = replaceModifiedPixels }, ct))?.ToString() ?? "{}";
-
-    [McpServerTool, Description("List annotation layers with each item's id, type, stored properties, links and drawn bounds, and whether the layer's pixels were edited outside the annotation tools. No Undo history.")]
-    public async Task<string> ListAnnotations(CancellationToken ct = default)
-        => (await bridge.CallAsync("list_annotations", null, ct))?.ToString() ?? "{}";
-
-    private async Task<string> LayerFunction(string function, int layerIndex, int toIndex, CancellationToken ct)
-    {
-        var res = await bridge.CallAsync("layer_function", new LayerFunctionParams
-            { Function = function, LayerIndex = layerIndex, ToIndex = toIndex }, ct);
-        return res?.ToString() ?? "{}";
-    }
-
     // ---- v0.5 Save .pdn -----------------------------------------------------
 
     [McpServerTool, Description(
@@ -806,27 +647,13 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
     }
 
     [McpServerTool, Description(
-        "List a built-in effect's settings: Name, Kind, current default Value, Min/Max, and Choices for list settings. " +
-        "Use the Names as keys for apply_effect's properties. Fails for effects that are not property based (Curves, Levels).")]
-    public async Task<string> GetEffectProperties(
-        [Description("Effect name from list_effects.")] string name,
-        CancellationToken ct = default)
-    {
-        var res = await bridge.CallAsync("get_effect_properties", new ApplyEffectParams { Name = name }, ct);
-        return res?.ToString() ?? "{}";
-    }
-
-    [McpServerTool, Description(
-        "Apply a built-in Paint.NET effect to the active layer, clipped to the selection, as one Undo step. " +
-        "Property-based effects run without a dialog using defaults plus the given properties " +
-        "(bool/int/double/string, a list setting by its Choice text, a color as \"#RRGGBB\" or \"#RRGGBBAA\" sRGB, " +
-        "a vector as [x, y]). Curves and Levels open their dialog instead.")]
+        "Apply a built-in Paint.NET effect by name to the active layer. v0.5 uses default settings " +
+        "(no property bag yet). Reflection-based; probes RunEffect / PerformEffect on the workspace.")]
     public async Task<string> ApplyEffect(
-        [Description("Effect name from list_effects.")] string name,
-        [Description("Optional settings, e.g. {\"Radius\": 8}; names from get_effect_properties.")] Dictionary<string, JsonElement>? properties = null,
+        [Description("Short class name (e.g. \"GaussianBlurEffect\") or full namespace name.")] string name,
         CancellationToken ct = default)
     {
-        var res = await bridge.CallAsync("apply_effect", new ApplyEffectParams { Name = name, Properties = properties }, ct);
+        var res = await bridge.CallAsync("apply_effect", new ApplyEffectParams { Name = name }, ct);
         return res?.ToString() ?? "{}";
     }
 
@@ -860,50 +687,6 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
         var res = await bridge.CallAsync("set_selection_polygon", new SetSelectionPolygonParams { Points = pts }, ct);
         return res?.ToString() ?? "{}";
     }
-
-    [McpServerTool, Description(
-        "Select an object by pointing at it: SAM (Segment Anything, via rembg) turns include points, exclude points " +
-        "and/or a box into a mask, which becomes Paint.NET's native selection (pixel-exact, holes kept, editable like a " +
-        "Magic Wand selection). Coordinates are canvas pixels on the visible image. mode: replace, union, exclude, " +
-        "intersect or xor, combined with the current selection. Give at least one include point or a box; add exclude " +
-        "points to cut away wrongly included parts. Does not change pixels. One native Undo step. Needs rembg on PATH " +
-        "(pip install \"rembg[cpu,cli]\"); takes a few seconds. Check the result with get_canvas_png before acting on it; " +
-        "if a part of the object is missing (e.g. a darker patch left as a hole), add it with mode union and an include point there.")]
-    public async Task<string> SelectObject(
-        [Description("Points on the object, e.g. [{\"x\":230,\"y\":420}].")] List<Point2I>? include = null,
-        [Description("Points that must not be selected.")] List<Point2I>? exclude = null,
-        int? boxX = null, int? boxY = null, int? boxWidth = null, int? boxHeight = null,
-        string mode = "replace", CancellationToken ct = default)
-        => (await bridge.CallAsync("select_object", new SelectObjectParams
-        {
-            Include = include ?? [], Exclude = exclude ?? [], BoxX = boxX, BoxY = boxY,
-            BoxWidth = boxWidth, BoxHeight = boxHeight, Mode = mode
-        }, ct))?.ToString() ?? "{}";
-
-    [McpServerTool, Description(
-        "Cut an object out onto a new transparent layer with soft edges, by pointing at it like select_object (same " +
-        "include/exclude points and box, same SAM mask). Unlike select_object + copy_selection_to_layer, whose edge is " +
-        "a hard 1-bit cut that keeps a rim of the old background, the edge is re-matted: alpha is re-estimated within " +
-        "band px of the mask edge (closed-form matting) and background color is removed from edge pixels, so hair, fur " +
-        "and motion-blurred wings stay partly transparent and do not show a dark or light halo on a new background. " +
-        "Colors come from the visible composite. The new layer is canvas-sized, placed above the active layer and " +
-        "selected; the source is unchanged. One native Undo step. band 0 keeps SAM's hard edge; larger bands help " +
-        "blurry edges but may pull in nearby background. Matting fixes edges, not shape: if part of the object is missing " +
-        "or extra, add include/exclude points or a box. Needs rembg on PATH (pip install \"rembg[cpu,cli]\"; pymatting " +
-        "comes with it). Takes a few seconds.")]
-    public async Task<string> CutoutObject(
-        [Description("Points on the object, e.g. [{\"x\":230,\"y\":420}].")] List<Point2I>? include = null,
-        [Description("Points that must not be included.")] List<Point2I>? exclude = null,
-        int? boxX = null, int? boxY = null, int? boxWidth = null, int? boxHeight = null,
-        [Description("Edge band half-width in px, 0..64. Default 6 suits smooth backgrounds (sky, wall); use 2-4 on " +
-            "textured ground (gravel, dirt, grass), where wider bands pull background in as a dark rim.")] int band = 6,
-        [Description("Name of the new layer.")] string name = "Cutout",
-        CancellationToken ct = default)
-        => (await bridge.CallAsync("cutout_object", new CutoutObjectParams
-        {
-            Include = include ?? [], Exclude = exclude ?? [], BoxX = boxX, BoxY = boxY,
-            BoxWidth = boxWidth, BoxHeight = boxHeight, Band = band, Name = name
-        }, ct))?.ToString() ?? "{}";
 
     [McpServerTool, Description(
         "Clear native selection and any legacy software mask. Supports Undo/Redo; clearing " +
