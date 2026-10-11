@@ -6,7 +6,7 @@ MCP는 AI가 다른 프로그램의 기능을 사용할 수 있게 하는 연결
 
 그리기 명령은 Paint.NET에서 MCP Bridge 효과를 자동 실행해 반영합니다. 서버를 연결한 뒤에는 매번 메뉴나 Ctrl+F를 누를 필요가 없습니다.
 
-[할 수 있는 작업](#할-수-있는-작업) · [실제 사례](docs/showcase.md) · [AI에게 요청하는 예시](#ai에게-요청하는-예시) · [설치](#설치) · [클라이언트 연결](#클라이언트-연결) · [사용법](#사용법) · [도구 목록](#도구-목록) · [검증](#검증)
+[할 수 있는 작업](#할-수-있는-작업) · [AI에게 요청하는 예시](#ai에게-요청하는-예시) · [설치](#설치) · [클라이언트 연결](#클라이언트-연결) · [사용법](#사용법) · [도구 목록](#도구-목록) · [검증](#검증)
 
 ## 할 수 있는 작업
 
@@ -18,11 +18,6 @@ MCP는 AI가 다른 프로그램의 기능을 사용할 수 있게 하는 연결
 | 기존 Paint.NET 문서 | 파일을 열어 레이어를 수정하고 전체 결과를 미리 보기 |
 | 반복 편집 | 여러 그리기 작업을 묶어 적용하고 실행 취소·다시 실행하기 |
 
-실제 작업에 써 본 네 가지 사례(사진에 번호·설명 붙이기, 점 하나로 물체 선택, 부품 사진 누끼 목록, 브레드보드 배선도)는 요청 문장과 결과 그림까지 [docs/showcase.md](docs/showcase.md)에 있습니다.
-
-<a href="docs/showcase.md"><img src="docs/showcase/01-annotation-before.jpg" alt="사례 1: 사진에 번호와 설명" width="32%"></a> <a href="docs/showcase.md"><img src="docs/showcase/02-select-dog.jpg" alt="사례 2: 점 하나로 물체 선택" width="32%"></a> <a href="docs/showcase.md"><img src="docs/showcase/04-wiring.png" alt="사례 4: 브레드보드 배선도" width="30.3%"></a>
-<a href="docs/showcase.md"><img src="docs/showcase/03-bolt-board.jpg" alt="사례 3: 부품 사진 누끼 목록" width="100%"></a>
-
 **레이어**는 투명한 종이를 여러 장 겹친 것과 같습니다. 배경, 사진, 제목을 각각 다른 장에 두면 제목만 옮기거나 사진만 바꿀 수 있습니다. **캔버스**는 그림을 만드는 전체 작업 공간입니다.
 
 완성된 이미지를 올리거나 공유하려면 PNG·JPEG·WebP로 내보냅니다. 다음에 레이어와 글자를 다시 수정하려면 `.pdn` 파일도 함께 저장하세요. `.pdn`은 Paint.NET의 작업 문서 형식입니다.
@@ -33,53 +28,37 @@ MCP로 만든 편집 가능한 텍스트는 내용과 글꼴 정보를 함께 �
 
 설치와 연결을 마친 뒤 **AI 앱의 대화창**에 아래처럼 입력하세요. 명령어를 외울 필요는 없습니다. AI가 요청에 맞는 도구를 선택하며, 결과는 Paint.NET 화면에서 확인할 수 있습니다. 전체 미리보기는 AI 앱의 이미지 표시 기능에 따라 대화창에서도 볼 수 있습니다.
 
-아래 그림은 모두 이 요청 문장을 실제로 Paint.NET MCP에 입력해 만든 결과입니다. 수정용 PDN 원본은 [docs/examples/](docs/examples/)에 있습니다(저장 위치는 저장소 폴더로 지정했습니다).
-
 ### 1. 사진 없이 공지 이미지 만들기
 
-> Paint.NET에 가로 1200, 세로 800픽셀 크기의 공지 이미지를 만들어줘. 제목은 ‘토요일 보드게임 모임’, 그 아래에 ‘오후 2시 · 동네 카페’라고 써줘. 보드게임 모임 느낌이 나게 꾸며줘. 두 문장은 각각 나중에 수정할 수 있는 텍스트 레이어로 만들어줘. 전체 미리보기를 보여줘.
+> Paint.NET에 가로 1200, 세로 800픽셀 크기의 공지 이미지를 만들어줘. 배경은 연한 크림색으로 하고, 위쪽에 짙은 파란색으로 ‘토요일 보드게임 모임’, 아래에 ‘오후 2시 · 동네 카페’라고 써줘. 두 문장은 각각 나중에 수정할 수 있는 텍스트 레이어로 만들어줘. 전체 미리보기를 보여줘.
 
 결과를 본 뒤에는 이렇게 이어서 요청할 수 있습니다.
 
-> 모임을 일요일 오후 3시로 옮겼어. 제목과 날짜를 둘 다 바꾸고, 날짜 배지 크기도 글자에 맞춰줘.
+> 제목을 조금 더 크게 하고 가운데로 옮겨줘. 날짜 문구는 ‘일요일 오후 3시’로 바꿔줘.
 
 > 완성본을 내 바탕 화면에 `모임공지.png`로 내보내고, 다음에 수정할 수 있게 `모임공지.pdn`도 저장해줘. 저장 위치를 모르면 먼저 물어봐.
 
-<img src="docs/examples/01-notice-first.jpg" alt="초록 펠트 배경 위 크림색 카드에 '토요일 보드게임 모임'과 '오후 2시 · 동네 카페' 배지, 모서리에 빨강·파랑 주사위" width="49%"> <img src="docs/examples/모임공지.jpg" alt="후속 요청 뒤. 제목이 '일요일 보드게임 모임'으로, 배지가 '일요일 오후 3시 · 동네 카페'로 바뀌고 배지 폭이 넓어졌다" width="49%">
-
-왼쪽이 첫 요청, 오른쪽이 후속 요청 뒤입니다. 배경, 카드, 주사위, 배지, 글자가 모두 별도 레이어(10장)라서 날짜만 바꾸고 배지 폭을 다시 맞출 수 있었습니다.
-
 ### 2. 내 사진으로 썸네일 만들기
 
-> 내 컴퓨터의 사진 파일로 가로 1280, 세로 720픽셀 썸네일을 만들어줘. 사진은 왼쪽에, 오른쪽에는 ‘주말 여행 기록’이라는 큰 제목을 배치해줘. 여행 영상 썸네일처럼 눈에 띄게 꾸며줘. 사진과 제목은 별도 레이어로 두고, 제목은 나중에 수정할 수 있게 만들어줘. 사진 파일의 위치를 먼저 물어봐.
+> 내 컴퓨터의 사진 파일로 가로 1280, 세로 720픽셀 썸네일을 만들어줘. 사진은 왼쪽에, 오른쪽에는 ‘주말 여행 기록’이라는 큰 제목을 배치해줘. 사진과 제목은 별도 레이어로 두고, 제목은 나중에 수정할 수 있게 만들어줘. 사진 파일의 위치를 먼저 물어봐.
 
 사진은 AI가 접근할 수 있는 컴퓨터에 있어야 합니다. 파일 위치가 필요하면 Windows 탐색기에서 사진을 오른쪽 클릭하고 **경로로 복사**를 선택해 AI에게 붙여 넣으세요. 메뉴에 보이지 않으면 Shift 키를 누른 채 오른쪽 클릭해 보세요.
 
-> 사진을 조금 더 기울이고, 제목 아래에 ‘강아지와 함께한 겨울 산책’이라는 부제를 넣어줘. 전체 결과를 보여줘.
-
-<img src="docs/examples/02-thumbnail-first.jpg" alt="남색 배경에 기울어진 폴라로이드 사진과 '주말 여행 기록' 두 줄 제목, '기록' 아래 노란 형광펜" width="49%"> <img src="docs/examples/02-thumbnail-edited.jpg" alt="후속 요청 뒤. 사진이 더 기울고 제목 아래에 부제가 추가되었다" width="49%">
+> 사진을 조금 줄이고 제목을 아래로 옮겨줘. 전체 결과를 보여줘.
 
 ### 3. 같은 디자인으로 여러 공지 만들기
 
-> 지금 만든 공지 디자인을 바탕으로 ‘독서 모임’, ‘영화 모임’, ‘산책 모임’ 버전을 만들어줘. 제목과 위쪽 영문 머리글만 수정하고 배경과 배치는 유지해줘. 각 버전을 이미지와 수정용 PDN으로 저장해줘. 저장할 폴더는 먼저 물어봐.
-
-<img src="docs/examples/독서모임.jpg" alt="같은 디자인의 '일요일 독서 모임' 공지, 머리글 BOOK CLUB" width="32%"> <img src="docs/examples/영화모임.jpg" alt="같은 디자인의 '일요일 영화 모임' 공지, 머리글 MOVIE NIGHT" width="32%"> <img src="docs/examples/산책모임.jpg" alt="같은 디자인의 '일요일 산책 모임' 공지, 머리글 WALKING CLUB" width="32%">
+> 지금 만든 공지 디자인을 바탕으로 ‘독서 모임’, ‘영화 모임’, ‘산책 모임’ 버전을 만들어줘. 제목 레이어만 수정하고 배경과 배치는 유지해줘. 각 버전을 PNG와 수정용 PDN으로 저장해줘. 저장할 폴더는 먼저 물어봐.
 
 ### 4. 그림의 일부를 따로 옮기기
 
-> 내가 Paint.NET에서 빨간 주사위 레이어를 고르고 주사위를 점선 테두리로 선택해 뒀어. 선택한 부분을 새 레이어로 복사해줘. 원본은 그대로 두고, 복사한 부분을 오른쪽으로 100픽셀 옮긴 다음 크기를 절반으로 줄여줘. 선택 영역을 해제하고 복사한 레이어 전체에 적용해줘.
+> 내가 Paint.NET에서 점선 테두리로 선택한 부분을 새 레이어로 복사해줘. 원본은 그대로 두고, 복사한 부분을 오른쪽으로 100픽셀 옮긴 다음 크기를 절반으로 줄여줘. 선택 영역을 해제하고 복사한 레이어 전체에 적용해줘.
 
-원하는 부분을 Paint.NET의 선택 도구로 직접 표시한 뒤 요청하면 됩니다. 아래 결과는 사람이 마우스로 선택하는 대신 AI가 같은 사각형 선택을 도구로 만들어 진행했습니다. 주사위가 자기 레이어에 따로 있어서 사각형으로 잡아도 주변 배경이 따라오지 않았습니다. 자동으로 물체의 윤곽을 찾거나 배경을 제거하는 작업은 사진과 사용 방식에 따라 결과가 달라집니다. AI 배경 제거에는 추가 프로그램인 rembg가 필요합니다.
-
-<img src="docs/examples/04-copy-moved.jpg" alt="원래 빨간 주사위 오른쪽에 절반 크기의 복사본 주사위가 놓인 공지" width="60%">
+원하는 부분을 Paint.NET의 선택 도구로 직접 표시한 뒤 요청하면 됩니다. 자동으로 물체의 윤곽을 찾거나 배경을 제거하는 작업은 사진과 사용 방식에 따라 결과가 달라집니다. AI 배경 제거에는 추가 프로그램인 rembg가 필요합니다.
 
 ### 5. 저장했던 문서 이어서 수정하기
 
 > 전에 저장한 `모임공지.pdn`을 열어줘. MCP로 만든 제목을 ‘다음 주에 만나요’로 바꾸고 전체 미리보기를 보여줘. 마음에 들면 새 이름으로 PNG와 PDN을 저장할게. 파일 위치를 먼저 물어봐.
-
-<img src="docs/examples/다음주공지.jpg" alt="다시 연 공지에서 제목만 '다음 주에 만나요'로 바뀌고 가운데 정렬이 유지된 결과" width="60%">
-
-저장했다가 다시 연 PDN에서도 제목이 그림이 아니라 수정 가능한 텍스트로 남아 있어서, 글자만 바꾸고 가운데 정렬을 다시 맞출 수 있었습니다.
 
 마음에 들지 않는 수정은 “방금 작업을 실행 취소해줘”라고 요청할 수 있습니다. 실행 취소는 현재 문서의 마지막 편집을 되돌리므로, 직접 편집한 작업이 섞여 있다면 무엇을 되돌릴지 확인하세요.
 
@@ -93,7 +72,7 @@ MCP로 만든 편집 가능한 텍스트는 내용과 글꼴 정보를 함께 �
 | Paint.NET | 5.x — 실제 앱 검증 버전: 5.1.12 |
 | 빌드 환경 | .NET 9 SDK |
 | 기본 설치 경로 | `C:\Program Files\paint.net` |
-| 선택 의존성 | AI 배경 제거·물체 선택: rembg CLI(`pip install "rembg[cpu,cli]"`) / OCR: Tesseract CLI |
+| 선택 의존성 | AI 배경 제거: rembg CLI / OCR: Tesseract CLI |
 
 rembg와 Tesseract는 해당 기능을 사용할 때만 필요합니다. 한국어 OCR에는 Tesseract의 한국어 언어 데이터도 필요합니다.
 
@@ -273,7 +252,6 @@ save_png(path="C:\out\canvas.png")
 | `open_image` | 절대 파일 경로로 이미지를 열고 활성 문서로 전환 |
 | `new_canvas` | 지정한 픽셀 크기의 새 흰색 캔버스 생성 |
 | `copy_selection_to_layer` | 선택한 픽셀을 원래 위치의 새 투명 레이어로 복사 |
-| `cutout_object` | 점·박스로 가리킨 물체를 부드러운 경계(반투명 알파, 배경색 제거)의 새 레이어로 잘라내기 |
 | `resize_canvas` | 픽셀 배율을 유지하며 모든 레이어의 캔버스 크기 변경 |
 | `crop_to_selection` | 기본 선택 영역으로 모든 레이어 자르기 |
 | `transform_layer` | 활성 레이어 픽셀의 이동·확대/축소·회전 |
@@ -478,34 +456,6 @@ Bridge의 파이프 서버는 플러그인 검색 중 생성자가 호출될 때
 
 0.5.24는 Paint.NET의 MCP 메뉴와 직접 텍스트를 수정하는 창을 추가합니다. 실제 Paint.NET 5.1.12에서 사용자가 행사 배너의 날짜를 수정하고 적용한 뒤, MCP 조회로 원문 변경을 확인했습니다. 전체 합성 이미지에서 날짜 영역만 바뀌었고 Undo/Redo의 전체 픽셀 복원과 `.pdn` 저장·재개방 후 텍스트 속성 보존을 검증했습니다. 메뉴 중복 등록 방지, 저장된 속성 로딩, 잘못된 입력 처리와 취소 동작을 포함한 회귀 검증 19개가 통과했습니다.
 
-0.5.25는 레이어의 이름·표시 여부·불투명도·혼합 모드를 바꾸는 `set_layer_properties`를 추가합니다. 실제 Paint.NET 5.1.12에서 함체 출하 사진(4000×2252)에 함체 번호 텍스트 레이어 네 개를 붙인 뒤, 한 레이어의 이름·불투명도 0.5·Multiply를 한 번에 바꿔 Undo 한 단계로 기록되는 것과 합성 화면의 반영을 확인했습니다. Undo 한 번으로 세 속성이 모두 복원됐고 텍스트 레이어는 유지됐습니다. 불투명도는 8비트로 저장되어 0.5가 128/255로 읽힙니다. 회귀 검증 20개가 통과했습니다.
-
-0.5.26은 `list_layers` 응답에서 혼합 모드가 빠지던 문제를 고칩니다. 실제 Paint.NET 5.1.12에서 사진(2252×4000)의 배경 레이어를 Multiply로 바꾼 뒤 `list_layers`가 `BlendMode: Multiply`를 돌려주고, Undo 후 `Normal`로 돌아오는 것을 확인했습니다. 회귀 검증 20개가 통과했습니다.
-
-0.5.27은 Paint.NET 레이어 메뉴의 기능을 그대로 호출하는 `duplicate_layer`·`move_layer`·`merge_layer_down`·`flatten_image`를 추가합니다. 실제 Paint.NET 5.1.12의 1400×1050 캔버스(배경·텍스트 레이어·빈 레이어)에서 네 도구가 각각 Undo 한 단계로 기록되고 Undo 한 번으로 레이어 구성과 텍스트 정의가 복원되는 것을 확인했습니다. Paint.NET의 복제 기능은 지정한 인덱스와 관계없이 활성 레이어를 복제하므로, 대상 레이어를 먼저 활성화하도록 고쳤습니다. 복제한 텍스트 레이어는 새 Id를 받으며 Undo/Redo 후에도 유지됩니다. 활성 레이어가 아닌 레이어의 아래로 병합, 텍스트 레이어를 배경에 병합할 때 텍스트 정의가 사라지는 것도 확인했습니다. Paint.NET 이력은 활성 레이어를 기록하지 않으므로 Undo 후 활성 레이어는 작업 전과 다를 수 있습니다. Paint.NET 메뉴로 직접 복제한 텍스트 레이어는 원본과 Id가 같습니다. 회귀 검증 22개가 통과했으나, 네 도구의 실제 동작은 Paint.NET 내부 인터페이스가 필요해 회귀 검증에 포함하지 못했습니다.
-
-0.5.28은 활성 레이어의 보이는 내용(알파 > 0 영역)을 캔버스나 지정한 박스 안에 정렬하는 `align_layer`를 추가합니다. 좌표 계산은 브리지가 하며, 내부적으로 `transform_layer`와 같은 대기열·batch·Undo 규칙을 따릅니다. 실제 Paint.NET 5.1.12의 800×600 캔버스에서 (20,30)의 100×50 사각형을 center/middle로 (350,275)–(450,325), margin 20의 right/bottom으로 (680,530)–(780,580), margin 20의 contain(nearest)으로 (20,110)–(780,490)에 정확히 배치하고, Undo 한 번으로 직전 상태와 픽셀 단위로 같아지는 것을 확인했습니다. 기본 보간(bilinear)으로 크게 확대하면 가장자리가 배율의 절반 정도(7.6배에서 4px) 목표 박스 밖으로 번지며, 경계를 정확히 지켜야 하면 nearest를 사용합니다. 회귀 검증 23개가 통과했습니다.
-
-0.5.29는 사진 주석용 `draw_arrow`·`draw_marker`·`draw_callout`을 추가하고 `draw_rectangle`에 `cornerRadius`를 추가합니다. `draw_callout`은 계산한 박스를 `info.box`로 돌려주어 다음 콜아웃을 겹치지 않게 배치할 수 있습니다. 실제 Paint.NET 5.1.12의 사진(2252×4000)에 반지름 48의 번호 마커, 한글 64pt 굵은 콜아웃(지시선 포함, 박스 587×113), 두께 12의 화살표를 그려 마커 숫자가 원 가운데에 오고 화살촉 끝이 지정 좌표에 닿는 것을 확인했습니다. 세 도구가 각각 Undo 한 단계로 기록되며, Undo 한 번에 화살표만, 다음 Undo 한 번에 콜아웃 박스와 지시선이 함께 지워지는 것을 확인했습니다. 결과는 편집 가능한 텍스트 레이어가 아니라 픽셀입니다. 회귀 검증 24개가 통과했습니다.
-
-0.5.30은 효과 설정값을 다룹니다. `get_effect_properties`가 효과의 설정 이름·종류·기본값·범위를 돌려주고, `apply_effect`가 `properties`로 받은 값을 넣어 대화상자 없이 실행합니다(Paint.NET의 "효과 반복" 경로). 실제 Paint.NET 5.1.12의 200×100 캔버스(x=100에서 흰색/검정 경계)에 위쪽 절반을 선택하고 MCP 도구로 GaussianBlur `Radius: 20`을 적용해, 선택 안쪽 경계가 ±20px에 걸쳐 번지고 선택 바깥은 그대로인 것을 확인했습니다. MotionBlur `Angle: 0.0, Centered: false, Distance: 30`은 경계 오른쪽으로만 정확히 30px 램프를 만들어 double·bool·int 값이 모두 반영되었습니다. 각 적용은 Undo 한 단계이며 Undo 후 해당 행이 적용 전과 바이트 단위로 같습니다. 범위 밖 값(`Radius: 999`), 없는 설정 이름, 타입이 다른 값은 픽셀과 이력을 건드리지 않고 이유와 함께 거부됩니다. `list_effects`는 레거시 CPU 효과만 찾으며 메뉴의 GPU 기반 효과는 아직 다루지 못합니다(0.5.31에서 해결). 회귀 검증 25개가 통과했습니다.
-
-0.5.31은 Paint.NET 효과 메뉴에 실제로 보이는 GPU 효과(`GaussianBlurGpuEffect`, `MorphologyGpuEffect` 등)를 `list_effects`·`get_effect_properties`·`apply_effect`에서 다룹니다. 이전 버전이 찾던 레거시 CPU 효과는 메뉴에 표시되지 않는 구현이며(`Category: DoNotDisplay`) 계속 목록에 남습니다(0.5.32에서 해결). GPU 효과는 기본값을 앱 설정에서 읽으므로 Paint.NET의 기본 서비스와 환경으로 초기화한 뒤 설정 목록을 만듭니다. 실제 Paint.NET 5.1.12의 200×100 캔버스(x=100에서 흰색/검정 경계)에서 `GaussianBlurGpuEffect`가 앱 설정의 Quality 4를 기본값으로 보고하고, 위쪽 절반 선택에 `Radius: 20`을 적용해 선택 안쪽만 경계가 x=83–123에 걸쳐 번지는 것을 확인했습니다. `MorphologyGpuEffect`의 `Mode: Erode`/`Dilate`(Width·Height 10)는 경계를 각각 x=96과 x=105로 반대 방향으로 옮겨 목록형 설정이 반영되었습니다. 각 적용은 Undo 한 단계이며 Undo 후 해당 행이 적용 전과 바이트 단위로 같고, 범위 밖 값(`Radius: 999`, 범위 0..300)은 거부됩니다. GPU 효과 대부분은 카테고리가 `Unknown`으로 표시되고(0.5.32에서 해결), 색 설정(`ManagedColorProperty`)은 여전히 지정할 수 없습니다(0.5.34에서 해결). 회귀 검증 25개가 통과했습니다.
-
-0.5.32는 `list_effects`의 카테고리를 효과 메뉴와 같은 출처(Paint.NET의 `EffectInfo`)에서 읽고, 메뉴에 표시되지 않는 `DoNotDisplay` 효과(레거시 CPU 효과, `RotateZoomGpuEffect`)를 목록에서 뺍니다. 뺀 효과도 이름으로 `apply_effect`·`get_effect_properties`를 호출할 수 있습니다. 실제 Paint.NET 5.1.12에서 목록이 55개(Adjustment 14, Effect 41)이고 `Unknown`·`DoNotDisplay`가 없음을 확인했습니다. 레거시 `LevelsEffect`·`InkSketchEffect`는 `DoNotDisplay`가 붙어 있지 않아 GPU 판과 함께 남습니다(0.5.33에서 해결). 회귀 검증 25개가 통과했습니다.
-
-0.5.33은 그 두 개도 숨깁니다. Paint.NET은 레거시 어셈블리(`PaintDotNet.Effects.Legacy`)를 효과 메뉴에 등록하지 않고, 메뉴의 Levels·Ink Sketch는 GPU 판입니다. 실제 Paint.NET 5.1.12에서 목록이 53개(Adjustment 13, Effect 40)이고 레거시 어셈블리 효과가 없음을 확인했습니다. 회귀 검증 25개가 통과했습니다.
-
-0.5.34는 효과의 색과 벡터 설정을 받고, 여러 레이어를 한 번에 정렬·분배하는 `arrange_layers`를 추가합니다. 색은 `"#RRGGBB"` 또는 `"#RRGGBBAA"`(sRGB), 벡터는 `[x, y]`로 넣습니다. 내장 효과 중 색 설정은 Clouds 하나뿐이고, 벡터는 Bulge·Vignette·Zoom Blur 등의 중심 위치입니다. Paint.NET은 범위 밖 벡터를 클램프하지 않고 그대로 실행하므로 MCP가 범위를 확인해 거부합니다. `get_effect_properties`의 색 기본값은 Paint.NET의 기본 환경 색(흰색)이며 사용자가 고른 기본색과 다를 수 있습니다. `arrange_layers`는 레이어들의 보이는 영역(알파 > 0)을 기준으로 캔버스(margin 적용) 또는 레이어들을 합친 영역 안에서 left/center/right·top/middle/bottom으로 정렬하고, horizontal/vertical로 현재 순서대로 간격을 같게 분배합니다. 정수 픽셀 이동만 하며, MCP 텍스트 레이어는 x/y를 고쳐 다시 렌더링하므로 편집 가능한 상태로 남습니다. 여러 레이어를 옮겨도 Undo 한 단계입니다. 실제 Paint.NET 5.1.12의 400×300 캔버스에서 Clouds를 `Color1: "#FF0000"`, `Color2: "#0000FF"`로 적용해 초록 채널이 0인 빨강–파랑 구름을 확인했고, Vignette `Offset: [-0.8, 0]`은 밝은 부분을 왼쪽으로 옮겼습니다(x=10 밝기 2→255, x=390 1→0). `"red"`와 `[5, 0]`(범위 -1..1)은 거부됩니다. 텍스트 레이어 세 개를 margin 20으로 left 정렬하고 vertical 분배해 보이는 영역의 왼쪽이 모두 x=20이 되고, 위아래 끝이 20과 280에 닿으며 간격이 98·97px(나머지 반올림)이 되는 것을 확인했습니다. 세 레이어 모두 `PixelsModified: false`로 편집 가능했습니다. 텍스트 레이어와 일반 비트맵 사각형을 `relativeTo: layers`로 center 정렬하면 두 레이어를 합친 영역(x 20–350) 가운데에 놓였습니다. Undo 두 번으로 텍스트 위치가 원래대로 돌아오고, 활성 레이어는 바뀌지 않으며, 이미 정렬된 경우는 이력을 남기지 않습니다. 회귀 검증 25개가 통과했습니다.
-
-0.5.35는 편집 가능한 주석을 추가합니다. `add_annotation`·`update_annotation`·`delete_annotation`·`list_annotations`가 콜아웃·화살표·마커를 픽셀이 아니라 객체로 다룹니다. 속성 이름은 `draw_callout`·`draw_arrow`·`draw_marker`와 같습니다. 한 주석 레이어(기본 이름 "Annotations")가 객체 목록을 메타데이터에 저장하고, 바뀔 때마다 목록 전체로 레이어를 다시 그립니다. 화살표의 `from`/`to`와 콜아웃의 `target`은 같은 레이어의 마커나 콜아웃 id를 가리킬 수 있습니다. 그러면 선의 끝이 그 도형의 테두리에서 시작하거나 끝나고, 도형을 옮기면 선이 따라옵니다. 다른 객체가 가리키는 객체는 지울 수 없고, 다른 도구로 주석 레이어 픽셀을 고친 뒤에는 `replaceModifiedPixels=true` 없이 수정을 거부합니다(텍스트 레이어와 같은 규칙). `arrange_layers`·`transform_layer`로 주석 레이어를 옮겨도 픽셀 변경으로 취급되며, 복제한 주석 레이어는 id가 겹쳐 수정할 때 어느 쪽인지 알려 달라며 거부합니다. 실제 Paint.NET 5.1.12의 800×500 캔버스에 마커 2개, 마커 1을 가리키는 콜아웃 "전원 입력", 그 콜아웃에서 마커 2로 가는 화살표를 추가한 뒤 콜아웃을 (420,60)에서 (60,60)으로 옮기고 문구를 "AC 220V 입력"으로 바꾸자, 리더선과 화살표가 새 박스 테두리에서 다시 시작하고 끝은 마커 테두리에 그대로 닿는 것을 확인했습니다. 각 추가·수정은 Undo 한 단계이며 Undo 두 번으로 콜아웃이 원래 위치와 문구로 돌아왔습니다. 연결된 마커 삭제, 자기 자신을 가리키는 링크, 외부 도구로 픽셀을 고친 레이어의 수정은 거부되었고, .pdn으로 저장한 뒤 다시 열어도 주석을 수정할 수 있었습니다. 복제한 주석 레이어의 id 중복과 `arrange_layers`로 옮긴 주석 레이어도 수정 시 이유와 함께 거부되었습니다. 이어서 MCP 도구 호출만으로 2252×4000 실사진에 같은 구성을 만들었습니다. 마커 2를 옮기자 화살표 끝이 따라왔고, 연결된 마커 삭제는 거부되었으며, Undo 한 번으로 마커와 화살표가 함께 원래 자리로 돌아왔습니다. .pdn 저장 후 다시 열어 콜아웃 문구를 바꾸자 넓어진 박스 테두리에서 리더선과 화살표가 다시 시작했습니다. 회귀 검증 25개가 통과했습니다.
-
-0.5.36은 위치를 찍어 물체를 선택하는 `select_object`를 추가합니다. 물체 위의 점(`include`), 빼야 할 곳의 점(`exclude`), 박스(`boxX`·`boxY`·`boxWidth`·`boxHeight`)를 SAM(Segment Anything, rembg의 `sam` 모델)에 넘겨 마스크를 받고, 마술봉과 같은 Paint.NET 내부 경로로 네이티브 선택 영역을 만듭니다. 픽셀 단위로 정확하고 구멍도 유지되며, `mode`(replace·union·exclude·intersect·xor)로 현재 선택과 합칠 수 있습니다. Undo 한 단계이고 픽셀은 바꾸지 않습니다. rembg가 필요합니다(`pip install "rembg[cpu,cli]"`, 첫 실행 때 SAM 모델 약 375MB를 내려받음). 실제 Paint.NET 5.1.12에서 2252×4000 사진의 개 몸통에 점 하나를 찍자 개 전체(653×629, 168,612px)가 선택되었고, 개 둘레 박스도 같은 결과를 냈습니다. 나무 줄기 점을 union으로 더하자 선택이 나무까지 넓어졌고 Undo 한 번으로 개만 남았습니다. 머리에 include 점, 몸통과 다리에 exclude 점 세 개를 주자 선택이 머리(304×297)로 줄었습니다(가슴의 작은 조각 두 개가 함께 잡힘). SAM은 활성 레이어가 아니라 보이는 레이어 전체의 합성 이미지를 봅니다. 거의 투명한 레이어가 활성인 상태에서도 나무 점 하나로 나무만 선택되었습니다. 한 번에 약 6초 걸립니다. 캔버스 밖 점, include·박스 없는 호출, 크기 0 박스, 모르는 mode는 선택을 바꾸지 않고 거부됩니다. 한계: SAM은 긴 변을 1024px로 줄여 보므로 큰 사진에서는 털 가장자리에 얇은 테가 남고 가는 틈이 빠질 수 있습니다. 이어서 MCP 도구 호출만으로 같은 사진에서 점·박스 선택(경계 1–2px 차이), union 추가 후 Undo 한 번에 박스 선택 복원, 모르는 mode·캔버스 밖 점 거부를 확인했습니다. 회귀 검증 25개가 통과했습니다.
-
-0.5.37은 `select_object`의 가장자리 해상도를 올립니다. SAM은 입력을 긴 변 1024px로 줄여 보므로, 이제 캔버스 전체 대신 물체 주변(긴 변의 25%, 최소 32px 여백)만 잘라 넘깁니다. 박스가 있으면 박스 주변을 바로 자르고, 점만 있으면 전체에서 한 번 찾은 범위로 다시 돌립니다(SAM 2회). 자른 범위가 캔버스 긴 변의 3/4 이상이면 이득이 없어 예전처럼 전체로 한 번 돕니다. 실제 Paint.NET 5.1.12의 2252×4000 개 사진에서 MCP 도구로 같은 박스를 선택해 비교하니, 예전 마스크가 귀·발·다리 사이에서 배경으로 5–15px 넘치던 테가 털 경계에 붙었습니다. 점 하나만 준 선택도 박스 결과와 2–3px 안에서 같았습니다. 대신 귀 안쪽의 어두운 털 약 700px가 구멍으로 빠졌고, 그 자리에 `mode: "union"` 점 하나를 더 주자 메워졌습니다. 회귀 검증 25개가 통과했습니다.
-
-0.5.38은 `cutout_object`를 추가합니다. `select_object`와 같은 점·박스로 SAM 마스크를 받되, 선택 영역 대신 새 투명 레이어에 물체를 씁니다. rembg의 SAM은 0/255만 돌려주고 Paint.NET 선택 영역도 1비트라서, `select_object` + `copy_selection_to_layer`로 오린 물체는 경계가 계단처럼 딱딱하고 옛 배경색 테가 남았습니다. 이제 마스크 경계 ±`band`px(기본 6) 띠에서 closed-form matting으로 알파를 다시 계산하고 경계 픽셀에서 배경색을 걷어냅니다(pymatting, rembg 의존성이라 추가 설치 없음). 보조 스크립트 `matte.py`는 Bridge DLL에 내장되어 실행 때 임시 파일로 풀리며, rembg.exe에 기록된 Python으로 돌립니다. `band: 0`이면 SAM의 딱딱한 경계 그대로입니다. Undo 한 단계이고 원본 레이어는 바뀌지 않습니다. 실제 Paint.NET 5.1.12에서 MCP stdio 호출로 5712×4284 갈매기 사진에 점 하나를 찍자 `band: 0`은 반투명 픽셀 0개, 기본값은 30,306개였습니다. 청록 바탕에서 비교하니 흐린 날개 끝의 계단이 반투명하게 풀렸고 부리 아래 자잘한 오검출 조각이 대부분 사라졌습니다. 3840×2160 일러스트의 머리(점 2개+박스)에서는 머리카락 끝의 검은 테가 없어지고 잔머리 가닥이 살아났으며, SAM이 눈가에 남긴 작은 구멍도 메워졌습니다. 같은 이유로 띠 안의 원래 구멍도 메워질 수 있습니다. matting은 경계만 고칩니다: SAM이 날개 하나를 통째로 빼먹는 식의 모양 오류는 include·exclude 점이나 박스로 고쳐야 합니다. 잘라내기 직후 Undo 한 번에 새 레이어만 사라졌고, 범위 밖 `band`는 거부되었습니다. 회귀 검증 25개가 통과했습니다.
-
 Paint.NET과 .NET 9 SDK가 설치된 Windows에서 실행합니다. 테스트는 별도 파이프를 사용합니다. 설치된 Paint.NET DLL과 시스템 런타임의 사전 컴파일 코드 차이를 피하기 위해 ReadyToRun을 끕니다.
 
 ```powershell
@@ -540,3 +490,9 @@ try {
 렌더링이 취소되면 작업은 큐에 남아 다음 실행에서 재시도됩니다. 잘못된 이미지 데이터처럼 작업 자체가 렌더링을 실패시키는 경우 해당 작업도 큐에 남으므로, 원인을 수정한 뒤 Paint.NET을 재시작해야 합니다.
 
 읽기 도구는 대기 중인 렌더링 완료 후 활성 레이어의 스냅샷을 갱신합니다. 수동 편집 후에도 MCP Bridge를 다시 실행할 필요가 없습니다. 텍스트 렌더링은 GDI+ 기반으로 Paint.NET 텍스트 도구와 결과가 다를 수 있습니다.
+
+### Editor language and document tabs
+
+The manual MCP text editor is available under **Effects > MCP > Edit text**. It follows the operating system UI language: Italian (`it`) for Italian Windows, English for English and all other languages. The menu is registered inside an existing Paint.NET menu instead of adding an unsupported top-level item (which could crash Paint.NET 5.x).
+
+Use the MCP tools `ping` (now returns `DocumentName` and `DocumentPath`), `list_open_documents`, and `activate_document(index)` to work with multiple open images or `.pdn` documents. `list_open_documents` returns each tab's index, name, path if saved, and active status. `activate_document` selects the requested tab before subsequent editing operations. This **changes the visible Paint.NET tab**; the bridge does not edit a truly inactive document in the background. Finish pending drawing operations and batches before switching, and re-list tabs if their order changes. Unsaved documents may have no path. Unsupported Paint.NET versions fail without silently editing the wrong document.

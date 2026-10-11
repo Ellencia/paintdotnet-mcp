@@ -35,6 +35,8 @@ internal static class ConnectionState
                 return;
             }
             result.DocumentOpen = true;
+            result.DocumentName = DocumentNavigation.FileName(documentWorkspace);
+            result.DocumentPath = DocumentNavigation.FilePath(documentWorkspace);
             var layer = AppServices.GetPropertyValue(documentWorkspace!, "ActiveLayer");
             if (layer is null || AppServices.GetPropertyValue(layer, "Surface") is not Surface surface)
             {

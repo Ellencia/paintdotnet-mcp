@@ -17,7 +17,7 @@ namespace PaintDotNetMcp.Contracts;
 
 public static class PipeNames
 {
-    public const string BridgeVersion = "0.5.38";
+    public const string BridgeVersion = "0.5.24";
     public const string Default = "PaintDotNetMcp.Bridge.v1";
     // Allow regression processes to use an isolated pipe without touching a live canvas.
     public static string Current => Environment.GetEnvironmentVariable("PAINTDOTNET_MCP_PIPE_NAME") ?? Default;
@@ -84,19 +84,6 @@ public sealed class TransformLayerParams
     public string Interpolation { get; set; } = "bilinear";
 }
 
-public sealed class AlignLayerParams
-{
-    public string? Horizontal { get; set; }
-    public string? Vertical { get; set; }
-    public string Fit { get; set; } = "none";
-    public int Margin { get; set; }
-    public int? TargetX { get; set; }
-    public int? TargetY { get; set; }
-    public int? TargetWidth { get; set; }
-    public int? TargetHeight { get; set; }
-    public string Interpolation { get; set; } = "bilinear";
-}
-
 public sealed class DocumentOpResult
 {
     public string? Path { get; set; }
@@ -112,6 +99,8 @@ public sealed class PingResult
     public bool SnapshotReady { get; set; }
     public string Version { get; set; } = "";
     public bool DocumentOpen { get; set; }
+    public string? DocumentName { get; set; }
+    public string? DocumentPath { get; set; }
     public int? Width { get; set; }
     public int? Height { get; set; }
     public int? LayerCount { get; set; }
@@ -148,65 +137,6 @@ public sealed class DrawRectangleParams
     public byte A { get; set; } = 255;
     public int Thickness { get; set; } = 1;
     public bool Fill { get; set; }
-    public int CornerRadius { get; set; }
-}
-
-public sealed class DrawArrowParams
-{
-    public int X1 { get; set; }
-    public int Y1 { get; set; }
-    public int X2 { get; set; }
-    public int Y2 { get; set; }
-    public byte R { get; set; }
-    public byte G { get; set; }
-    public byte B { get; set; }
-    public byte A { get; set; } = 255;
-    public int Thickness { get; set; } = 3;
-    /// <summary>Head length in px; 0 = max(10, thickness*4).</summary>
-    public int HeadSize { get; set; }
-    public bool BothEnds { get; set; }
-}
-
-public sealed class DrawMarkerParams
-{
-    /// <summary>Circle center.</summary>
-    public int X { get; set; }
-    public int Y { get; set; }
-    public string Label { get; set; } = "1";
-    public int Radius { get; set; } = 16;
-    public byte R { get; set; } = 220;
-    public byte G { get; set; } = 30;
-    public byte B { get; set; } = 30;
-    public byte A { get; set; } = 255;
-    public byte TextR { get; set; } = 255;
-    public byte TextG { get; set; } = 255;
-    public byte TextB { get; set; } = 255;
-    public string FontFamily { get; set; } = "Segoe UI";
-}
-
-public sealed class DrawCalloutParams
-{
-    /// <summary>Box top-left; the box auto-sizes to the text.</summary>
-    public int X { get; set; }
-    public int Y { get; set; }
-    public string Text { get; set; } = "";
-    public string FontFamily { get; set; } = "Segoe UI";
-    public float FontSize { get; set; } = 16f;
-    public bool Bold { get; set; }
-    /// <summary>Text, border and leader color.</summary>
-    public byte R { get; set; }
-    public byte G { get; set; }
-    public byte B { get; set; }
-    public byte BgR { get; set; } = 255;
-    public byte BgG { get; set; } = 255;
-    public byte BgB { get; set; } = 255;
-    public byte BgA { get; set; } = 255;
-    public int BorderThickness { get; set; } = 2;
-    public int Padding { get; set; } = 8;
-    public int CornerRadius { get; set; } = 6;
-    /// <summary>Optional leader target; an arrow runs from the box edge to here.</summary>
-    public int? TargetX { get; set; }
-    public int? TargetY { get; set; }
 }
 
 public sealed class DrawLineParams
@@ -622,7 +552,6 @@ public sealed class LayerDescriptor
     public bool IsActive { get; set; }
     public bool IsVisible { get; set; }
     public double Opacity { get; set; } = 1.0;
-    public string BlendMode { get; set; } = "Normal";
 }
 
 public sealed class ListLayersResult
@@ -645,43 +574,6 @@ public sealed class DeleteLayerParams
 public sealed class SelectLayerParams
 {
     public int Index { get; set; }
-}
-
-public sealed class SetLayerPropertiesParams
-{
-    public int LayerIndex { get; set; } = -1;
-    public string? Name { get; set; }
-    public bool? Visible { get; set; }
-    public double? Opacity { get; set; }
-    public string? BlendMode { get; set; }
-}
-
-public sealed class AnnotationParams
-{
-    public string? Id { get; set; }
-    public string? Type { get; set; }
-    public Dictionary<string, System.Text.Json.JsonElement>? Properties { get; set; }
-    public string? From { get; set; }
-    public string? To { get; set; }
-    public string? Target { get; set; }
-    public bool ReplaceModifiedPixels { get; set; }
-}
-
-public sealed class ArrangeLayersParams
-{
-    public int[]? LayerIndices { get; set; }
-    public string? Horizontal { get; set; }
-    public string? Vertical { get; set; }
-    public string? Distribute { get; set; }
-    public string RelativeTo { get; set; } = "canvas";
-    public int Margin { get; set; }
-}
-
-public sealed class LayerFunctionParams
-{
-    public string Function { get; set; } = "";
-    public int LayerIndex { get; set; } = -1;
-    public int ToIndex { get; set; } = -1;
 }
 
 public sealed class LayerOpResult
@@ -721,8 +613,6 @@ public sealed class ApplyEffectParams
 {
     /// <summary>Short class name (e.g. "GaussianBlurEffect") or full namespace name.</summary>
     public string Name { get; set; } = "";
-    /// <summary>Property name → value (see get_effect_properties). Null keeps every default.</summary>
-    public Dictionary<string, System.Text.Json.JsonElement>? Properties { get; set; }
 }
 
 public sealed class ApplyEffectResult
@@ -746,31 +636,6 @@ public sealed class SetSelectionRectParams
 public sealed class SetSelectionPolygonParams
 {
     public List<Point2I> Points { get; set; } = new();
-}
-
-public sealed class SelectObjectParams
-{
-    public List<Point2I> Include { get; set; } = new();
-    public List<Point2I> Exclude { get; set; } = new();
-    public int? BoxX { get; set; }
-    public int? BoxY { get; set; }
-    public int? BoxWidth { get; set; }
-    public int? BoxHeight { get; set; }
-    /// <summary>replace, union, exclude, intersect or xor.</summary>
-    public string Mode { get; set; } = "replace";
-}
-
-public sealed class CutoutObjectParams
-{
-    public List<Point2I> Include { get; set; } = new();
-    public List<Point2I> Exclude { get; set; } = new();
-    public int? BoxX { get; set; }
-    public int? BoxY { get; set; }
-    public int? BoxWidth { get; set; }
-    public int? BoxHeight { get; set; }
-    /// <summary>Half-width in px of the edge band where alpha is re-estimated; 0 keeps SAM's hard edge.</summary>
-    public int Band { get; set; } = 6;
-    public string Name { get; set; } = "Cutout";
 }
 
 public sealed class SelectionResult
