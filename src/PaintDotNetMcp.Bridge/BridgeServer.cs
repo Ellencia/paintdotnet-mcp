@@ -219,11 +219,11 @@ internal static class BridgeServer
         {
             if (HistoryOps.BatchActive && req.Method is "open_image" or "new_canvas" or "commit" or "set_auto_commit" or
                 "add_layer" or "delete_layer" or "select_layer" or "apply_effect" or
-                "set_selection_rect" or "set_selection_polygon" or "clear_selection" or "select_object" or "cutout_object")
+                "set_selection_rect" or "set_selection_polygon" or "clear_selection")
                 throw new InvalidOperationException("Finish the active batch with end_batch before this operation.");
             // Snapshot consumers must not race an outstanding drawing operation.
             if (req.Method is "get_canvas_png" or "save_png" or "extract_region" or
-                "remove_background" or "detect_objects" or "extract_objects" or "ocr_region" or "select_object" or "cutout_object")
+                "remove_background" or "detect_objects" or "extract_objects" or "ocr_region")
             {
                 if (HistoryOps.BatchActive && req.Method is "get_canvas_png" or "save_png")
                     throw new InvalidOperationException("Finish the active batch with end_batch before reading or exporting images.");
@@ -238,6 +238,8 @@ internal static class BridgeServer
             return req.Method switch
             {
                 "ping"               => Ok(req.Id, BuildPingResult()),
+                "list_open_documents" => Ok(req.Id, DocumentNavigation.List()),
+                "activate_document"  => Ok(req.Id, DocumentNavigation.Activate(req.Params is { } parameters && parameters.TryGetProperty("index", out var docIndex) ? docIndex.GetInt32() : -1)),
                 "open_image"         => Ok(req.Id, DocumentOps.Open(req.Params?.Deserialize<OpenImageParams>() ?? new())),
                 "new_canvas"         => Ok(req.Id, DocumentOps.Create(req.Params?.Deserialize<NewCanvasParams>() ?? new())),
                 "copy_selection_to_layer" => Ok(req.Id, NativeEditing.CopySelection(req.Params?.Deserialize<CopySelectionToLayerParams>() ?? new())),
@@ -246,9 +248,6 @@ internal static class BridgeServer
                 "fill"               => QueueOp<FillParams>(req, p => new FillOp(p)),
                 "draw_rect"          => QueueOp<DrawRectangleParams>(req, p => new DrawRectOp(p)),
                 "draw_line"          => QueueOp<DrawLineParams>(req, p => new DrawLineOp(p)),
-                "draw_arrow"         => QueueOp<DrawArrowParams>(req, p => new DrawArrowOp(p)),
-                "draw_marker"        => QueueOp<DrawMarkerParams>(req, p => new DrawMarkerOp(p)),
-                "draw_callout"       => QueueOp<DrawCalloutParams>(req, p => new DrawCalloutOp(p)),
                 "draw_ellipse"       => QueueOp<DrawEllipseParams>(req, p => new DrawEllipseOp(p)),
                 "draw_polygon"       => QueueOp<DrawPolygonParams>(req, p => new DrawPolygonOp(p)),
                 "draw_text"          => QueueOp<DrawTextParams>(req, p => new DrawTextOp(p)),
@@ -256,19 +255,11 @@ internal static class BridgeServer
                 "update_text_layer"  => Ok(req.Id, TextLayers.Update(req.Params?.Deserialize<UpdateTextLayerParams>() ?? new())),
                 "get_text_layer"     => Ok(req.Id, TextLayers.Get(req.Params?.Deserialize<TextLayerIndexParams>() ?? new())),
                 "list_text_layers"   => Ok(req.Id, TextLayers.List()),
-                "set_layer_properties" => Ok(req.Id, LayerOps.SetProperties(req.Params?.Deserialize<SetLayerPropertiesParams>() ?? new())),
-                "add_annotation"     => Ok(req.Id, Annotations.Add(req.Params?.Deserialize<AnnotationParams>() ?? new())),
-                "update_annotation"  => Ok(req.Id, Annotations.Update(req.Params?.Deserialize<AnnotationParams>() ?? new())),
-                "delete_annotation"  => Ok(req.Id, Annotations.Delete(req.Params?.Deserialize<AnnotationParams>() ?? new())),
-                "list_annotations"   => Ok(req.Id, Annotations.List()),
-                "arrange_layers"     => Ok(req.Id, TextLayers.Arrange(req.Params?.Deserialize<ArrangeLayersParams>() ?? new())),
-                "layer_function"     => Ok(req.Id, LayerOps.ApplyFunction(req.Params?.Deserialize<LayerFunctionParams>() ?? new())),
                 "open_text_editor"   => Ok(req.Id, TextEditor.Open()),
                 "flood_fill"         => QueueOp<FloodFillParams>(req, p => new FloodFillOp(p)),
                 "gradient_fill"      => QueueOp<GradientFillParams>(req, p => new GradientFillOp(p)),
                 "paste_image"        => QueueOp<PasteImageParams>(req, p => new PasteImageOp(p)),
                 "transform_layer"    => QueueOp<TransformLayerParams>(req, p => new TransformLayerOp(p)),
-                "align_layer"        => QueueOp<AlignLayerParams>(req, p => new AlignLayerOp(p)),
                 "get_canvas_png"     => HandleGetCanvasPng(req),
                 "save_png"           => HandleSavePng(req),
                 "extract_region"     => HandleExtractRegion(req),
@@ -290,12 +281,9 @@ internal static class BridgeServer
                 "save_pdn"           => HandleSavePdn(req),
                 "list_effects"       => HandleListEffects(req),
                 "apply_effect"       => HandleApplyEffect(req),
-                "get_effect_properties" => Ok(req.Id, EffectsCatalog.Properties(req.Params?.Deserialize<ApplyEffectParams>()?.Name ?? "")),
                 // v0.6 — selection / OCR
                 "set_selection_rect"    => HandleSetSelectionRect(req),
                 "set_selection_polygon" => HandleSetSelectionPolygon(req),
-            "select_object"         => HandleSelectObject(req),
-                "cutout_object"         => HandleCutoutObject(req),
                 "clear_selection"       => HandleClearSelection(req),
                 "get_selection"         => Ok(req.Id, NativeSelection.Get()),
                 "ocr_region"            => HandleOcrRegion(req),
@@ -315,8 +303,7 @@ internal static class BridgeServer
         if (req.Params is null) return Err(req.Id, "missing params");
         var p = req.Params.Value.Deserialize<TParams>()
             ?? throw new InvalidOperationException("could not deserialize params");
-        var op = factory(p);
-        long revision = Enqueue(op);
+        long revision = Enqueue(factory(p));
 
         bool autoTried = AutoCommit.TryTrigger(_lastEffect, out string note);
         return Ok(req.Id, new
@@ -328,7 +315,6 @@ internal static class BridgeServer
             auto_triggered = autoTried,
             auto_committed = false,
             commit_note = note,
-            info = op.Info,
         });
     }
 
@@ -707,7 +693,7 @@ internal static class BridgeServer
                 result.Layers.Add(new LayerDescriptor
                 {
                     Index = row.Index, Name = row.Name, Width = row.Width, Height = row.Height,
-                    IsActive = row.IsActive, IsVisible = row.IsVisible, Opacity = row.Opacity, BlendMode = row.BlendMode,
+                    IsActive = row.IsActive, IsVisible = row.IsVisible, Opacity = row.Opacity,
                 });
             }
         }
@@ -762,8 +748,8 @@ internal static class BridgeServer
     private static RpcResponse HandleApplyEffect(RpcRequest req)
     {
         var p = req.Params?.Deserialize<ApplyEffectParams>() ?? throw new InvalidOperationException("missing params");
-        var r = EffectsCatalog.ApplyHeadless(p.Name, p.Properties);
-        return Ok(req.Id, r is EffectsCatalog.InvokeResult ir ? new ApplyEffectResult { Ok = ir.Ok, Note = ir.Note } : r);
+        var r = EffectsCatalog.Apply(p.Name);
+        return Ok(req.Id, new ApplyEffectResult { Ok = r.Ok, Note = r.Note });
     }
 
     // -------------------- v0.6 selection / OCR handlers ---------------------
@@ -780,158 +766,6 @@ internal static class BridgeServer
         var pts = new List<System.Drawing.Point>(p.Points.Count);
         foreach (var pt in p.Points) pts.Add(new System.Drawing.Point(pt.X, pt.Y));
         return Ok(req.Id, NativeSelection.Polygon(pts));
-    }
-
-    private static RpcResponse HandleSelectObject(RpcRequest req)
-    {
-        var p = req.Params?.Deserialize<SelectObjectParams>() ?? throw new InvalidOperationException("missing params");
-        if (p.Mode.ToLowerInvariant() is not ("replace" or "union" or "exclude" or "intersect" or "xor"))
-            throw new ArgumentException("mode must be replace, union, exclude, intersect or xor.");
-        var (mask, region, w, h, _) = ObjectMask(p);
-        int rx = region.X, ry = region.Y, rw = region.Width, rh = region.Height;
-        bool Inside(int x, int y) => x >= rx && y >= ry && x < rx + rw && y < ry + rh && mask[((y - ry) * rw + x - rx) * 4 + 1] > 127;
-        return Ok(req.Id, NativeSelection.Mask(Inside, w, h, p.Mode, "MCP object selection"));
-    }
-
-    // SAM's selection as a new layer with soft edges: alpha is re-estimated in a band around the mask edge (matte.py),
-    // which a native selection cannot carry. Colors come from the visible composite, like SAM's input.
-    private static RpcResponse HandleCutoutObject(RpcRequest req)
-    {
-        var p = req.Params?.Deserialize<CutoutObjectParams>() ?? throw new InvalidOperationException("missing params");
-        if (p.Band is < 0 or > 64) throw new ArgumentException("band must be 0..64 px.");
-        if (string.IsNullOrWhiteSpace(p.Name) || p.Name.Length > 256) throw new ArgumentException("Layer name must contain 1..256 characters.");
-        var (mask, region, w, h, buf) = ObjectMask(new SelectObjectParams
-        {
-            Include = p.Include, Exclude = p.Exclude, BoxX = p.BoxX, BoxY = p.BoxY, BoxWidth = p.BoxWidth, BoxHeight = p.BoxHeight
-        });
-        int rx = region.X, ry = region.Y, rw = region.Width, rh = region.Height;
-        var source = ImageIO.CropBuffer(buf, w, h, rx, ry, rw, rh);
-        byte[] pixels;
-        if (p.Band == 0)
-        {
-            pixels = source;
-            for (int i = 0; i < rw * rh; i++) if (mask[i * 4 + 1] <= 127) pixels[i * 4 + 3] = 0;
-        }
-        else
-        {
-            var matted = AiMatting.RefineEdges(ImageIO.EncodeImage(source, rw, rh, 0, 0, rw, rh, SKEncodedImageFormat.Png, 100),
-                ImageIO.EncodeImage(mask, rw, rh, 0, 0, rw, rh, SKEncodedImageFormat.Png, 100), p.Band);
-            if (!matted.Ok || matted.Bgra is null) throw new InvalidOperationException("Edge matting failed: " + matted.Note);
-            if (matted.W != rw || matted.H != rh) throw new InvalidOperationException($"Matte is {matted.W}x{matted.H}, region is {rw}x{rh}.");
-            pixels = matted.Bgra;
-            // matte.py sees RGB only; keep transparency the composite already had.
-            for (int i = 0; i < rw * rh; i++) pixels[i * 4 + 3] = (byte)(pixels[i * 4 + 3] * source[i * 4 + 3] / 255);
-        }
-        int opaque = 0, edge = 0;
-        for (int i = 0; i < rw * rh; i++)
-            if (pixels[i * 4 + 3] == 255) opaque++;
-            else if (pixels[i * 4 + 3] > 0) edge++;
-        if (opaque + edge == 0) throw new InvalidOperationException("Cutout is empty; nothing added.");
-        return Ok(req.Id, NativeEditing.Run(workspace =>
-        {
-            int index = NativeEditing.InsertLayer(workspace, p.Name, "MCP cut out object", s =>
-            {
-                for (int y = 0; y < rh; y++)
-                    for (int x = 0; x < rw; x++)
-                    {
-                        int i = (y * rw + x) * 4;
-                        if (pixels[i + 3] > 0) s[rx + x, ry + y] = ColorBgra.FromBgra(pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]);
-                    }
-            });
-            return new
-            {
-                Ok = true, LayerIndex = index, p.Name, X = rx, Y = ry, Width = rw, Height = rh,
-                OpaquePixels = opaque, EdgePixels = edge, p.Band, HistorySteps = 1
-            };
-        }));
-    }
-
-    // SAM mask for include/exclude points and/or a box, on a crop around the object when that gains resolution.
-    // Returns the mask (BGRA, region-sized, object where G > 127), its canvas region, and the composite it came from.
-    private static (byte[] Mask, System.Drawing.Rectangle Region, int W, int H, byte[] Image) ObjectMask(SelectObjectParams p)
-    {
-        bool hasBox = p.BoxX is not null || p.BoxY is not null || p.BoxWidth is not null || p.BoxHeight is not null;
-        if (p.Include.Count == 0 && !hasBox)
-            throw new ArgumentException("Give at least one include point or a box.");
-        // SAM looks at what the user sees (all visible layers), not just the active layer.
-        var buf = ImageIO.ReadImageSource("composite", out int w, out int h);
-
-        foreach (var pt in p.Include.Concat(p.Exclude))
-            if (pt.X < 0 || pt.Y < 0 || pt.X >= w || pt.Y >= h)
-                throw new ArgumentException($"Point ({pt.X},{pt.Y}) is outside the {w}x{h} canvas.");
-        System.Drawing.Rectangle? box = null;
-        if (hasBox)
-        {
-            if (p.BoxX is not int bx || p.BoxY is not int by || p.BoxWidth is not int bw || p.BoxHeight is not int bh
-                || bw <= 0 || bh <= 0 || bx < 0 || by < 0 || (long)bx + bw > w || (long)by + bh > h)
-                throw new ArgumentException($"Box needs boxX, boxY, positive boxWidth and boxHeight, inside the {w}x{h} canvas.");
-            box = new(bx, by, bw, bh);
-        }
-
-        // SAM sees its input at 1024 px on the long side, so a small object on a big photo gets coarse edges.
-        // Run it on a crop around the object instead: the box if given, else the object found by a first full-canvas pass.
-        var whole = new System.Drawing.Rectangle(0, 0, w, h);
-        byte[]? mask = null;
-        System.Drawing.Rectangle region;
-        if (box is { } b) region = b;
-        else
-        {
-            mask = RunSam(buf, w, h, whole, p, box);
-            region = MaskBounds(mask, w, h)
-                ?? throw new InvalidOperationException("SAM found nothing at the given points/box; nothing changed.");
-            foreach (var pt in p.Include) region = System.Drawing.Rectangle.Union(region, new(pt.X, pt.Y, 1, 1));
-        }
-        region = Pad(region, w, h);
-        if (Math.Max(region.Width, region.Height) * 4 < Math.Max(w, h) * 3)   // under 3/4 of the canvas: crop gains resolution
-            mask = RunSam(buf, w, h, region, p, box);
-        else
-        {
-            mask ??= RunSam(buf, w, h, whole, p, box);
-            region = whole;
-        }
-        if (MaskBounds(mask, region.Width, region.Height) is null)
-            throw new InvalidOperationException("SAM found nothing at the given points/box; nothing changed.");
-        return (mask, region, w, h, buf);
-    }
-
-    // One SAM run on a canvas region; prompt coordinates are shifted into it, exclude points outside it are dropped.
-    private static byte[] RunSam(byte[] buf, int w, int h, System.Drawing.Rectangle r, SelectObjectParams p, System.Drawing.Rectangle? box)
-    {
-        // rembg's SAM prompt: points label 1 = object, 0 = background; a rectangle is [x1, y1, x2, y2].
-        var prompt = new List<object>();
-        foreach (var (pts, label) in new[] { (p.Include, 1), (p.Exclude, 0) })
-            foreach (var pt in pts)
-                if (r.Contains(pt.X, pt.Y))
-                    prompt.Add(new { type = "point", data = new[] { pt.X - r.X, pt.Y - r.Y }, label });
-        if (box is { } b)
-            prompt.Add(new { type = "rectangle", data = new[] { b.X - r.X, b.Y - r.Y, b.Right - r.X, b.Bottom - r.Y }, label = 1 });
-        var json = JsonSerializer.Serialize(new { sam_prompt = prompt });
-        var ai = AiMatting.RunOnRegion(buf, w, h, r.X, r.Y, r.Width, r.Height, "sam", ["-om", "-x", json]);
-        if (!ai.Ok || ai.Bgra is null) throw new InvalidOperationException("SAM failed: " + ai.Note);
-        if (ai.W != r.Width || ai.H != r.Height) throw new InvalidOperationException($"SAM mask is {ai.W}x{ai.H}, region is {r.Width}x{r.Height}.");
-        return ai.Bgra;
-    }
-
-    private static System.Drawing.Rectangle? MaskBounds(byte[] mask, int w, int h)
-    {
-        int x0 = w, y0 = h, x1 = -1, y1 = -1;
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++)
-                if (mask[(y * w + x) * 4 + 1] > 127)
-                {
-                    if (x < x0) x0 = x; if (x > x1) x1 = x;
-                    if (y < y0) y0 = y; if (y > y1) y1 = y;
-                }
-        return x1 < 0 ? null : new(x0, y0, x1 - x0 + 1, y1 - y0 + 1);
-    }
-
-    // Context margin around the object: 25% of its long side, at least 32 px, clipped to the canvas.
-    private static System.Drawing.Rectangle Pad(System.Drawing.Rectangle r, int w, int h)
-    {
-        int m = Math.Max(32, Math.Max(r.Width, r.Height) / 4);
-        var padded = System.Drawing.Rectangle.Inflate(r, m, m);
-        padded.Intersect(new(0, 0, w, h));
-        return padded;
     }
 
     private static RpcResponse HandleClearSelection(RpcRequest req)
