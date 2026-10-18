@@ -41,7 +41,6 @@ public sealed class BridgeEffect : PropertyBasedEffect
     {
         // Start the background pipe server on first construction. Idempotent.
         BridgeServer.EnsureStarted(this);
-        TextEditor.EnsureMenuRegistration();
     }
 
     protected override PropertyCollection OnCreatePropertyCollection()
@@ -63,5 +62,26 @@ public sealed class BridgeEffect : PropertyBasedEffect
     protected override void OnRender(Rectangle[] renderRects, int startIndex, int length)
     {
         _renderBatch?.Render(DstArgs.Surface, renderRects, startIndex, length);
+    }
+}
+
+// Effects > Tools > EditorTitle: the user's entry point to the text editor. Pixels pass through unchanged.
+[EffectCategory(EffectCategory.Effect)]
+public sealed class TextEditorEffect : PropertyBasedEffect
+{
+    public TextEditorEffect() : base(EditorStrings.EditorTitle, "Tools", new EffectOptions { Flags = EffectFlags.None }) { }
+
+    protected override PropertyCollection OnCreatePropertyCollection()
+        => new PropertyCollection(Array.Empty<Property>());
+
+    protected override void OnSetRenderInfo(PropertyBasedEffectConfigToken? newToken, RenderArgs dstArgs, RenderArgs srcArgs)
+    {
+        TextEditor.OpenFromEffect();
+        base.OnSetRenderInfo(newToken, dstArgs, srcArgs);
+    }
+
+    protected override void OnRender(Rectangle[] renderRects, int startIndex, int length)
+    {
+        for (int i = startIndex; i < startIndex + length; i++) DstArgs.Surface.CopySurface(SrcArgs.Surface, renderRects[i].Location, renderRects[i]);
     }
 }

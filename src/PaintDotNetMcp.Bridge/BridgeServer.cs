@@ -238,6 +238,8 @@ internal static class BridgeServer
             return req.Method switch
             {
                 "ping"               => Ok(req.Id, BuildPingResult()),
+                "list_open_documents" => Ok(req.Id, DocumentNavigation.List()),
+                "activate_document"  => Ok(req.Id, DocumentNavigation.Activate(req.Params?.Deserialize<ActivateDocumentParams>()?.Index ?? -1)),
                 "open_image"         => Ok(req.Id, DocumentOps.Open(req.Params?.Deserialize<OpenImageParams>() ?? new())),
                 "new_canvas"         => Ok(req.Id, DocumentOps.Create(req.Params?.Deserialize<NewCanvasParams>() ?? new())),
                 "copy_selection_to_layer" => Ok(req.Id, NativeEditing.CopySelection(req.Params?.Deserialize<CopySelectionToLayerParams>() ?? new())),

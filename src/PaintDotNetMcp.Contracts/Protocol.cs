@@ -17,7 +17,7 @@ namespace PaintDotNetMcp.Contracts;
 
 public static class PipeNames
 {
-    public const string BridgeVersion = "0.5.38";
+    public const string BridgeVersion = "0.5.39";
     public const string Default = "PaintDotNetMcp.Bridge.v1";
     // Allow regression processes to use an isolated pipe without touching a live canvas.
     public static string Current => Environment.GetEnvironmentVariable("PAINTDOTNET_MCP_PIPE_NAME") ?? Default;
@@ -48,6 +48,11 @@ public sealed class WaitForIdleParams
 public sealed class OpenImageParams
 {
     public string Path { get; set; } = "";
+}
+
+public sealed class ActivateDocumentParams
+{
+    public int Index { get; set; } = -1;
 }
 
 public sealed class NewCanvasParams
@@ -112,6 +117,8 @@ public sealed class PingResult
     public bool SnapshotReady { get; set; }
     public string Version { get; set; } = "";
     public bool DocumentOpen { get; set; }
+    public string? DocumentName { get; set; }
+    public string? DocumentPath { get; set; }
     public int? Width { get; set; }
     public int? Height { get; set; }
     public int? LayerCount { get; set; }

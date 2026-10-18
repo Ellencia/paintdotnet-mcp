@@ -103,7 +103,7 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
 
     [McpServerTool, Description(
         "Ping the Paint.NET MCP Bridge plugin. Returns version, whether a document is open, " +
-        "canvas dimensions, pending op count, snapshot readiness, ConnectionStatus and RecoveryAction. " +
+        "canvas dimensions, active DocumentName/DocumentPath, pending op count, snapshot readiness, ConnectionStatus and RecoveryAction. " +
         "Open Paint.NET and a canvas; the Bridge starts during plugin discovery and initializes " +
         "the snapshot automatically. The Tools menu is a fallback for connection problems.")]
     public async Task<string> Ping(CancellationToken ct)
@@ -111,6 +111,18 @@ public sealed class PaintDotNetTools(BridgeClient bridge)
         var result = await bridge.CallAsync("ping", null, ct);
         return result?.ToString() ?? "{}";
     }
+
+    [McpServerTool, Description(
+        "List open Paint.NET documents (tabs): Index, Name, Path (null if never saved) and IsActive. " +
+        "All editing tools act on the active document; use activate_document to switch first.")]
+    public async Task<string> ListOpenDocuments(CancellationToken ct = default)
+        => (await bridge.CallAsync("list_open_documents", null, ct))?.ToString() ?? "{}";
+
+    [McpServerTool, Description(
+        "Make the open document at Index (from list_open_documents) the active tab; this switches the visible tab. " +
+        "Rejected while drawing is pending or a batch is open. Call sequentially, not in parallel with editing calls.")]
+    public async Task<string> ActivateDocument(int index, CancellationToken ct = default)
+        => (await bridge.CallAsync("activate_document", new ActivateDocumentParams { Index = index }, ct))?.ToString() ?? "{}";
 
     [McpServerTool, Description(
         "Request execution of the registered MCP Bridge effect on Paint.NET's UI thread " +
