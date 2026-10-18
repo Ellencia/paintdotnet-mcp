@@ -1,0 +1,18 @@
+# Builds only what compiles without Paint.NET. Bridge and the regression tests reference
+# Paint.NET's own DLLs, which a hosted runner doesn't have; those stay local (see README 검증).
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - run: dotnet build src/PaintDotNetMcp.Server -c Release
