@@ -97,6 +97,12 @@ public sealed class BridgeClient : IAsyncDisposable
                 ? "bridge_unavailable: Paint.NET is running but the Bridge did not connect. Wait for startup and retry. If this persists, run Effects > Tools > MCP Bridge. If the menu is missing, close Paint.NET, run install.ps1, and check Paint.NET plugin errors."
                 : "paintdotnet_not_running: Open Paint.NET and an image or canvas, then retry. No Tools menu invocation is normally required.", ex);
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            // The pipe is owned by whoever started Paint.NET (e.g. a Codex sandbox account).
+            pipe.Dispose();
+            throw new IOException("bridge_access_denied: Paint.NET is running under a different Windows account (e.g. a sandboxed agent). Close that Paint.NET (Task Manager if the window is hidden) and reopen it normally, then retry.", ex);
+        }
         catch { pipe.Dispose(); throw; }
     }
 
