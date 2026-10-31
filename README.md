@@ -125,6 +125,12 @@ rembg와 Tesseract는 해당 기능을 사용할 때만 필요합니다. 한국�
 
 설치 후 Paint.NET에서 캔버스를 열고 MCP 클라이언트를 다시 연결하세요. Bridge는 플러그인 검색 중 시작되며, 연결 후 초기 스냅샷을 준비합니다. PowerShell 창은 닫아도 됩니다. 스크립트는 최초 설치와 코드 업데이트 때만 실행합니다.
 
+관리자 권한 없이 설치하려면 사용자 플러그인 폴더를 지정합니다. Paint.NET은 이 폴더의 플러그인도 읽으므로 업데이트 때 UAC 창이 뜨지 않습니다. 같은 DLL이 `Program Files\paint.net\Effects`에도 있으면 두 번 로드되니 그쪽 5개는 한 번 지우세요. 이후 업데이트도 항상 같은 `-EffectsDir`로 실행합니다.
+
+```powershell
+.\install.ps1 -EffectsDir "$([Environment]::GetFolderPath('MyDocuments'))\paint.net App Files\Effects"
+```
+
 실행 정책으로 스크립트가 차단되는 환경에서는 이번 실행에만 다음 명령을 사용할 수 있습니다.
 
 ```powershell
@@ -542,6 +548,7 @@ try {
 | `paintdotnet_not_running` | Paint.NET과 캔버스를 열고 재시도 |
 | `bridge_unavailable` | 시작이 끝난 뒤 재시도. 계속 실패하면 Tools 메뉴의 MCP Bridge 실행 또는 설치·플러그인 오류 확인 |
 | `bridge_version_mismatch` | Paint.NET 종료 → `install.ps1` → Paint.NET 실행 및 MCP 클라이언트 재연결 |
+| `bridge_access_denied` | Paint.NET이 다른 Windows 계정(샌드박스 에이전트 등)으로 실행 중. 그 Paint.NET을 종료(창이 숨겨졌으면 작업 관리자)하고 평소대로 다시 실행 |
 | `ping.ConnectionStatus=no_document` / `no_active_layer` | 캔버스를 열거나 비트맵 레이어를 선택한 뒤 재시도 |
 | `ping.ConnectionStatus=host_not_ready` / `render_failed` | `RecoveryAction`에 표시된 시작·렌더 완료 대기 또는 재실행 안내 확인 |
 | 플러그인이 메뉴에 없음 | Effects 폴더의 배포 파일과 Paint.NET의 플러그인 오류 확인 |
